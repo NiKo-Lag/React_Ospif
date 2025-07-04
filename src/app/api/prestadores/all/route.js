@@ -1,18 +1,18 @@
-import { db } from '@/lib/db';
-import { getSession } from '@/lib/auth';
+// src/app/api/prestadores/all/route.js
+
 import { NextResponse } from 'next/server';
 
 export async function GET(request) {
-    const session = getSession();
-    if (!session) {
-        return NextResponse.json({ message: 'No autorizado' }, { status: 401 });
-    }
+  // En el futuro, esto leerá de tu base de datos SQLite.
+  // Por ahora, usamos datos de prueba para que el formulario funcione.
+  const mockProviders = [
+    { id: 1, razonSocial: "Hospital Italiano", estado: "activo" },
+    { id: 2, razonSocial: "Sanatorio Finochietto", estado: "activo" },
+    { id: 3, razonSocial: "Centro de Diagnóstico Dr. Rossi", estado: "activo" },
+    { id: 4, razonSocial: "Swiss Medical Center", estado: "inactivo" },
+  ];
 
-    try {
-        const prestadores = db.prepare('SELECT * FROM prestadores WHERE estado = ?').all('activo');
-        return NextResponse.json(prestadores);
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({ message: 'Error al obtener los prestadores' }, { status: 500 });
-    }
+  const activeProviders = mockProviders.filter(p => p.estado === 'activo');
+
+  return NextResponse.json(activeProviders);
 }
