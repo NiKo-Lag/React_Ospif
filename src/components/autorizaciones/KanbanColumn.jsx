@@ -1,8 +1,8 @@
-// app/components/autorizaciones/KanbanColumn.jsx
+// src/components/autorizaciones/KanbanColumn.jsx
 
 import KanbanCard from './KanbanCard';
 
-export default function KanbanColumn({ title, cards = [] }) {
+export default function KanbanColumn({ title, cards = [], onViewDetails }) {
   return (
     <div className="bg-gray-100 rounded-lg p-3">
       <div className="flex justify-between items-center mb-3">
@@ -13,7 +13,11 @@ export default function KanbanColumn({ title, cards = [] }) {
       </div>
       <div className="space-y-3">
         {cards.map(auth => (
-          <KanbanCard key={auth.id} auth={auth} />
+          <KanbanCard 
+            key={auth.id} 
+            auth={auth} 
+            onViewDetails={onViewDetails} 
+          />
         ))}
       </div>
     </div>

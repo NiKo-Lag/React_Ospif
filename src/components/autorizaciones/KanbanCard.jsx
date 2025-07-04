@@ -1,8 +1,8 @@
-// app/components/autorizaciones/KanbanCard.jsx
+// src/components/autorizaciones/KanbanCard.jsx
 
 import { StarIcon } from '@heroicons/react/24/solid';
 
-export default function KanbanCard({ auth }) {
+export default function KanbanCard({ auth, onViewDetails }) {
   const typeColors = {
     'Práctica Médica': 'bg-blue-100 text-blue-800',
     'Internación': 'bg-red-100 text-red-800',
@@ -10,7 +10,7 @@ export default function KanbanCard({ auth }) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-md shadow-sm border border-gray-200 hover:shadow-md cursor-pointer">
+    <div className="bg-white p-4 rounded-md shadow-sm border border-gray-200 hover:shadow-md">
       <div className="flex justify-between items-start">
         <span className={`text-xs font-semibold px-2 py-1 rounded-full ${typeColors[auth.type] || 'bg-gray-100'}`}>
           {auth.type}
@@ -23,8 +23,11 @@ export default function KanbanCard({ auth }) {
       <p className="font-bold text-gray-800 mt-2">{auth.title || 'Sin Título'}</p>
       <p className="text-sm text-gray-600">{auth.beneficiary || 'Sin Beneficiario'}</p>
       <div className="mt-3 pt-3 border-t flex justify-between items-center">
-        <span className="text-xs font-bold text-gray-500">{auth.id}</span>
-        <button className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-md">
+        <span className="text-xs font-bold text-gray-500">ID: {auth.id}</span>
+        <button 
+          onClick={() => onViewDetails(auth)}
+          className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-md"
+        >
           Ver Detalle
         </button>
       </div>
