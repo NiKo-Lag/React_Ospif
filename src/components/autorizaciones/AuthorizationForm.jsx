@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { XMarkIcon, LockClosedIcon } from '@heroicons/react/24/solid';
+import { XMarkIcon, LockClosedIcon, PaperClipIcon } from '@heroicons/react/24/solid';
 
 const calculateAge = (birthDateString) => {
     if (!birthDateString) return '';
@@ -94,6 +94,9 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
             if (isReadOnly) return;
             try {
                 const response = await fetch('/api/prestadores/all');
+                if (!response.ok) {
+                    throw new Error('La respuesta de la red no fue correcta');
+                }
                 const data = await response.json();
                 setProviders(data);
             } catch (error) {
@@ -151,9 +154,17 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         const dataToSubmit = new FormData();
         dataToSubmit.append('type', 'Práctica Médica');
         dataToSubmit.append('title', formData.practice);
-        if (formData.attachment) dataToSubmit.append('attachment', formData.attachment);
-        const details = { beneficiaryData: beneficiary, ...formData };
+        if (formData.attachment) {
+            dataToSubmit.append('attachment', formData.attachment);
+        }
+        
+        // --- SOLUCIÓN: Se clona el objeto de detalles y se elimina el adjunto antes de convertir a JSON
+        const detailsToSubmit = { ...formData };
+        delete detailsToSubmit.attachment;
+        const details = { beneficiaryData: beneficiary, ...detailsToSubmit };
+        
         dataToSubmit.append('details', JSON.stringify(details));
+
         try {
             const response = await fetch('/api/autorizaciones', { method: 'POST', body: dataToSubmit });
             if (!response.ok) {
@@ -209,7 +220,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         <form onSubmit={handleFormSubmit} className="flex flex-col h-full bg-gray-50">
             <div className="flex-shrink-0 flex items-center justify-between p-4 border-b bg-white rounded-t-lg">
                 <h2 className="text-xl font-semibold text-gray-800">{isReadOnly ? `Detalle Solicitud: #${initialData?.id}` : 'Nueva Solicitud'}</h2>
-                <button type="button" onClick={closeModal} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600"><XMarkIcon className="h-6 w-6" /></button>
+                <button type="button" onClick={closeModal} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600"></button>
             </div>
 
             <div className="flex-grow p-6 space-y-6 overflow-y-auto">
@@ -244,7 +255,29 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                             <FormField label="Práctica Solicitada" htmlFor="practice"><select id="practice" name="practice" value={formData.practice} onChange={handleInputChange} className="form-select w-full"><option value="">Seleccione...</option>{medicalPractices.map(p => <option key={p} value={p}>{p}</option>)}</select></FormField>
                             <FormField label="Diagnóstico Presuntivo" htmlFor="diagnosis"><input type="text" id="diagnosis" name="diagnosis" value={formData.diagnosis} onChange={handleInputChange} className="form-input w-full" /></FormField>
                             <FormField label="Matrícula Solicitante" htmlFor="medicalLicense"><input type="text" id="medicalLicense" name="medicalLicense" value={formData.medicalLicense} onChange={handleInputChange} className="form-input w-full" /></FormField>
-                            <FormField label="Adjuntar Orden" htmlFor="attachment"><input type="file" id="attachment" name="attachment" onChange={handleInputChange} className="form-input w-full" /></FormField>
+                            
+                            {/* --- SOLUCIÓN: Lógica para visualizar/previsualizar el adjunto --- */}
+                            <FormField label="Adjuntar Orden" htmlFor="attachment">
+                                {isReadOnly ? (
+                                    initialData?.details?.attachmentUrl ? (
+                                        <a href={initialData.details.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 text-indigo-600 hover:text-indigo-800 underline">
+                                            <PaperClipIcon className="h-5 w-5" />
+                                            <span>Ver Orden Adjunta</span>
+                                        </a>
+                                    ) : (
+                                        <p className="text-gray-500">No hay orden adjunta.</p>
+                                    )
+                                ) : (
+                                    <div>
+                                        <input type="file" id="attachment" name="attachment" onChange={handleInputChange} className="form-input w-full" />
+                                        {formData.attachment && typeof formData.attachment === 'object' && (
+                                            <a href={URL.createObjectURL(formData.attachment)} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 underline mt-1 inline-block">
+                                                Previsualizar archivo seleccionado
+                                            </a>
+                                        )}
+                                    </div>
+                                )}
+                            </FormField>
                         </div>
                     </div>
 
@@ -254,7 +287,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                         <h3 className="font-semibold text-lg mb-3 text-gray-800">Auditoría y Prestación</h3>
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField label="Auditor Médico" htmlFor="auditor"><select id="auditor" name="auditor" value={formData.auditor} onChange={handleInputChange} className="form-select w-full"><option value="">Seleccione...</option>{auditors.map(a => <option key={a} value={a}>{a}</option>)}</select></FormField>
-                            <FormField label="Prestador Sugerido" htmlFor="providerId"><select id="providerId" name="providerId" value={formData.providerId} onChange={handleInputChange} className="form-select w-full"><option value="">Seleccione...</option>{suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></FormField>
+                            <FormField label="Prestador Sugerido" htmlFor="providerId"><select id="providerId" name="providerId" value={formData.providerId} onChange={handleInputChange} className="form-select w-full"><option value="">Seleccione...</option>{suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.razonSocial}</option>)}</select></FormField>
                             <div className="md:col-span-2"><FormField label="Observaciones" htmlFor="observations"><textarea id="observations" name="observations" value={formData.observations} onChange={handleInputChange} rows="3" className="form-textarea w-full"></textarea></FormField></div>
                         </div>
                     </div>

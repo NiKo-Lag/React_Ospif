@@ -1,53 +1,81 @@
 // src/app/api/autorizaciones/route.js
 
 import { NextResponse } from 'next/server';
+import { Pool } from 'pg';
+import path from 'path';
+import { writeFile, mkdir } from 'fs/promises';
 
-// --- Base de Datos en Memoria (simulada) ---
-const autorizacionesDB = [
-  { id: 1001, type: 'Práctica Médica', title: 'Tomografía Computada', beneficiary: 'Juan Pérez (25123456789)', date: new Date(2025, 6, 4).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }), status: 'Nuevas Solicitudes', isImportant: true },
-  { id: 1002, type: 'Internación', title: 'Internación por Apendicitis', beneficiary: 'Maria Lopez (27987654321)', date: new Date(2025, 6, 4).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }), status: 'Nuevas Solicitudes', isImportant: false },
-  { id: 1003, type: 'Práctica Médica', title: 'Análisis de Sangre Completo', beneficiary: 'Carlos Gomez (20112233445)', date: new Date(2025, 6, 3).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }), status: 'En Auditoría', isImportant: false },
-  { id: 1004, type: 'Práctica Médica', title: 'Consulta Cardiológica', beneficiary: 'Ana Fernandez (27334455667)', date: new Date(2025, 6, 3).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }), status: 'Autorizadas', isImportant: false },
-  { id: 1005, type: 'Medicamento', title: 'Medicamento Oncológico', beneficiary: 'Roberto Sanchez (20998877665)', date: new Date(2025, 6, 2).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }), status: 'Rechazadas', isImportant: true }
-];
-let lastId = 1005; 
+// --- CONEXIÓN A POSTGRESQL ---
+const pool = new Pool({
+  connectionString: process.env.POSTGRES_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
 
-// --- FUNCIÓN GET: Para leer todas las autorizaciones ---
-export async function GET(request) {
-  // Simplemente devolvemos la lista completa.
-  return NextResponse.json(autorizacionesDB);
+// ... (El código de la función GET no cambia)
+export async function GET() {
+  try {
+    const result = await pool.query('SELECT id, to_char(created_at, \'DD/MM/YYYY\') as date, type, title, beneficiary_name as beneficiary, status, is_important as "isImportant", details FROM authorizations ORDER BY created_at DESC');
+    return NextResponse.json(result.rows);
+  } catch (error) {
+    console.error("Error al obtener autorizaciones:", error);
+    return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
+  }
 }
 
-// --- FUNCIÓN POST: Para crear una nueva autorización ---
+
+// Endpoint para CREAR una nueva autorización en PostgreSQL
 export async function POST(request) {
   try {
     const formData = await request.formData();
     const detailsString = formData.get('details');
+    const attachment = formData.get('attachment');
+    
     if (!detailsString) {
-      return NextResponse.json({ message: "Error: Faltan los detalles en el formulario." }, { status: 400 });
-    }
-    const details = JSON.parse(detailsString);
-    if (!details.beneficiaryData || !details.beneficiaryData.cuil) {
-      return NextResponse.json({ message: "Error: Faltan los datos del beneficiario." }, { status: 400 });
+      return NextResponse.json({ message: 'Faltan los detalles de la solicitud.' }, { status: 400 });
     }
 
-    const newAuth = {
-      id: ++lastId,
-      type: formData.get('type'),
-      title: formData.get('title'),
-      beneficiary: `${details.beneficiaryData.apellido}, ${details.beneficiaryData.nombre} (${details.beneficiaryData.cuil})`,
-      date: new Date().toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-      status: 'Nuevas Solicitudes',
-      wasEdited: false,
-      isImportant: details.isImportant,
-      details: details,
+    const details = JSON.parse(detailsString);
+    const newId = Date.now();
+    let attachmentUrl = null;
+
+    if (attachment) {
+      const bytes = await attachment.arrayBuffer();
+      const buffer = Buffer.from(bytes);
+
+      // --- CAMBIO CLAVE: Guardamos en una carpeta PRIVADA ---
+      const uploadDir = path.join(process.cwd(), 'storage');
+      const filename = `${newId}-${attachment.name}`;
+      const filePath = path.join(uploadDir, filename);
+
+      await mkdir(uploadDir, { recursive: true });
+      await writeFile(filePath, buffer);
+
+      // --- CAMBIO CLAVE: La URL ahora apunta a nuestra API "portero" ---
+      attachmentUrl = `/api/files/${filename}`;
+      console.log(`Archivo guardado de forma segura en: ${filePath}`);
+    }
+
+    const finalDetails = {
+      ...details,
+      attachmentUrl: attachmentUrl,
     };
+
+    const query = `
+      INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *;
+    `;
     
-    autorizacionesDB.unshift(newAuth); // Agregamos la nueva al principio
-    return NextResponse.json(newAuth, { status: 201 });
+    const values = [
+      newId, 'Práctica Médica', details.practice, details.beneficiaryData.nombre, 
+      'Nuevas Solicitudes', details.isImportant, JSON.stringify(finalDetails)
+    ];
+
+    const result = await pool.query(query, values);
+    return NextResponse.json(result.rows[0], { status: 201 });
 
   } catch (error) {
-    console.error("Error al crear autorización:", error);
-    return NextResponse.json({ message: "Error interno del servidor: " + error.message }, { status: 500 });
+    console.error("Error al crear la autorización:", error);
+    return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
   }
 }

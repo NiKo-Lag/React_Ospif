@@ -6,7 +6,7 @@ import Link from 'next/link';
 // Este es un Componente de Servidor, por lo que podemos usar `async`
 // y obtener datos directamente en el servidor antes de renderizar.
 export default async function AppLayout({ children }) {
-    const session = getSession();
+    const session = await getSession();
 
     if (!session) {
         // Si no hay sesión, redirigimos al login.
