@@ -8,18 +8,35 @@ import KanbanColumn from "./KanbanColumn";
 export default function KanbanBoard({ authorizations, loading, error, dateFilter, searchTerm, onViewDetails }) {
 
   const filteredAuthorizations = useMemo(() => {
-    if (!dateFilter) return [];
-    const formattedDate = dateFilter.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    if (!authorizations) return [];
+    
+    const dateFiltered = dateFilter 
+      ? authorizations.filter(auth => {
+          const formattedDate = dateFilter.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+          return auth.date === formattedDate;
+        })
+      : authorizations;
+
+    if (!searchTerm) {
+      return dateFiltered;
+    }
+
     const lowercasedSearch = searchTerm.toLowerCase();
-    return authorizations.filter(auth => {
-      const dateMatch = auth.date === formattedDate;
-      const searchMatch = lowercasedSearch === '' || auth.beneficiary?.toLowerCase().includes(lowercasedSearch) || auth.title?.toLowerCase().includes(lowercasedSearch) || auth.id.toString().includes(lowercasedSearch);
-      return dateMatch && searchMatch;
+
+    return dateFiltered.filter(auth => {
+      return (
+        auth.beneficiary?.toLowerCase().includes(lowercasedSearch) ||
+        auth.title?.toLowerCase().includes(lowercasedSearch) ||
+        auth.id.toString().includes(lowercasedSearch) ||
+        // --- SOLUCIÓN: Convertimos el CUIL a string con .toString() antes de buscar ---
+        auth.details?.beneficiaryData?.cuil?.toString().includes(lowercasedSearch)
+      );
     });
+
   }, [authorizations, dateFilter, searchTerm]);
 
-  if (loading) return <p className="text-center text-gray-500">Cargando autorizaciones...</p>;
-  if (error) return <p className="text-center text-red-500">Error: {error}</p>;
+  if (loading) return <p className="text-center text-gray-500 py-10">Cargando autorizaciones...</p>;
+  if (error) return <p className="text-center text-red-500 py-10">Error: {error}</p>;
 
   const groupedByStatus = filteredAuthorizations.reduce((acc, auth) => {
     const status = auth.status || 'Sin Estado';
