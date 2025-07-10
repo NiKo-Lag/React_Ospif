@@ -13,30 +13,28 @@ const pool = new Pool({
 
 /**
  * Obtiene todas las autorizaciones para el tablero Kanban.
+ * **VERSIÓN FINAL CON JOINS**
  */
 export async function GET() {
   try {
-    // Consulta SQL formateada para mayor legibilidad.
     const query = `
       SELECT 
-        id, 
-        to_char(created_at, 'DD/MM/YYYY') as date, 
-        type, 
-        title, 
-        beneficiary_name as beneficiary, 
-        status, 
-        is_important as "isImportant", 
-        details 
-      FROM authorizations 
-      ORDER BY created_at DESC;
+        a.id, 
+        to_char(a.created_at, 'DD/MM/YYYY') as date, 
+        a.type, 
+        a.title, 
+        a.beneficiary_name as beneficiary, 
+        a.status, 
+        a.is_important as "isImportant", 
+        a.details,
+        p.razonSocial as provider_name,
+        u.name as auditor_name
+      FROM authorizations a
+      LEFT JOIN prestadores p ON a.provider_id = p.id
+      LEFT JOIN users u ON a.auditor_id = u.id
+      ORDER BY a.created_at DESC;
     `;
     const result = await pool.query(query);
-
-    // (Opcional) Descomenta esta línea si necesitas depurar la estructura de un registro.
-    // if (result.rows.length > 0) {
-    //   console.log('Estructura de "details" para depuración:', result.rows[0].details);
-    // }
-
     return NextResponse.json(result.rows);
   } catch (error) {
     console.error("Error al obtener autorizaciones:", error);
@@ -45,7 +43,8 @@ export async function GET() {
 }
 
 /**
- * Crea una nueva autorización, procesando los datos y el archivo adjunto.
+ * Crea una nueva autorización.
+ * **CON LOG DE DEPURACIÓN FINAL**
  */
 export async function POST(request) {
   try {
@@ -57,55 +56,58 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Faltan los detalles de la solicitud.' }, { status: 400 });
     }
 
+    // --- ¡¡¡LOG DE DEPURACIÓN IMPORTANTE!!! ---
+    // Esto nos mostrará exactamente qué está enviando el formulario.
+    console.log("--- DEBUG POST: 'details' JSON string recibido del formulario ---");
+    console.log(detailsString);
+    console.log("-------------------------------------------------------------");
+
     const details = JSON.parse(detailsString);
     
-    // --- Validación de datos clave ---
-    // Nos aseguramos de que los datos necesarios existan antes de continuar.
-    if (!details.practice || !details.beneficiaryData?.cuil || !details.beneficiaryData?.nombre) {
-        return NextResponse.json({ message: 'Faltan datos esenciales en la solicitud (práctica, CUIL o nombre del beneficiario).' }, { status: 400 });
+    if (!details.practice || !details.beneficiaryData?.cuil) {
+        return NextResponse.json({ message: 'Faltan datos esenciales en la solicitud.' }, { status: 400 });
     }
 
     const newId = Date.now();
     let attachmentUrl = null;
 
-    // --- Manejo del archivo adjunto ---
     if (attachment) {
       const bytes = await attachment.arrayBuffer();
       const buffer = Buffer.from(bytes);
-
-      // Guardamos en una carpeta 'storage' en la raíz del proyecto para mayor seguridad.
       const uploadDir = path.join(process.cwd(), 'storage');
       const filename = `${newId}-${attachment.name}`;
       const filePath = path.join(uploadDir, filename);
-
       await mkdir(uploadDir, { recursive: true });
       await writeFile(filePath, buffer);
-
-      // La URL apunta a una API route que sirve los archivos de forma segura.
       attachmentUrl = `/api/files/${filename}`;
-      console.log(`Archivo guardado de forma segura en: ${filePath}`);
     }
 
-    // Combinamos los detalles originales con la URL del archivo.
+    const providerId = details.provider_id || null;
+    const auditorId = details.auditor_id || null;
+    delete details.provider_id;
+    delete details.auditor_id;
+    
     const finalDetails = {
       ...details,
-      attachmentUrl: attachmentUrl, // Será null si no hay archivo.
+      attachmentUrl: attachmentUrl,
     };
 
     const query = `
-      INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details, provider_id, auditor_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *;
     `;
     
     const values = [
       newId,
-      'Práctica Médica', // Tipo fijo por ahora.
+      'Práctica Médica',
       details.practice,
       details.beneficiaryData.nombre,
-      'Nuevas Solicitudes', // Estado inicial.
-      details.isImportant || false, // Valor por defecto si no se provee.
-      JSON.stringify(finalDetails), // El objeto completo se guarda como JSON.
+      'Nuevas Solicitudes',
+      details.isImportant || false,
+      JSON.stringify(finalDetails),
+      providerId,
+      auditorId
     ];
 
     const result = await pool.query(query, values);
@@ -113,7 +115,6 @@ export async function POST(request) {
 
   } catch (error) {
     console.error("Error al crear la autorización:", error);
-    // Devuelve un mensaje de error más específico si es un error de parseo de JSON.
     if (error instanceof SyntaxError) {
         return NextResponse.json({ message: 'El formato de los detalles (JSON) es inválido.' }, { status: 400 });
     }

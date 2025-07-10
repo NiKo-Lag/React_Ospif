@@ -15,8 +15,9 @@ const calculateAge = (birthDateString) => {
     if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
     return age;
 };
+
+// Estos datos ahora se obtendrán desde la API o se usarán para la lógica interna.
 const medicalPractices = ["Consulta Médica", "Tomografía Computada", "Resonancia Magnética Nuclear", "Análisis de Sangre Completo", "Endoscopía Digestiva Alta", "Ecografía Abdominal"];
-const auditors = ["Dr. Anibal Lecter", "Dr. Gregory House", "Dra. Quinn, Medicine Woman"];
 const practiceToProviderMap = { "Tomografía Computada": [1, 3], "Resonancia Magnética Nuclear": [3], "Análisis de Sangre Completo": [1, 2, 3], "Consulta Médica": [1, 2]};
 
 const FormField = ({ label, children, htmlFor }) => (
@@ -27,20 +28,32 @@ const FormField = ({ label, children, htmlFor }) => (
 );
 
 export default function AuthorizationForm({ onSuccess, closeModal, initialData = null, isReadOnly = false }) {
-    const [isEditing, setIsEditing] = useState(false);
+    const [isEditing, setIsEditing] = useState(!isReadOnly);
     const [cuil, setCuil] = useState('');
     const [beneficiary, setBeneficiary] = useState(null);
     const [loadingBeneficiary, setLoadingBeneficiary] = useState(false);
     const [beneficiaryError, setBeneficiaryError] = useState('');
-    const [formData, setFormData] = useState({
-        prescriptionDate: '', practice: '', diagnosis: '', medicalLicense: '', 
-        attachment: null, auditor: '', providerId: '', observations: '', isImportant: false
-    });
-    const [providers, setProviders] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // --- ESTADOS PARA DATOS DE APIS ---
+    const [providers, setProviders] = useState([]);
+    const [auditors, setAuditors] = useState([]);
 
+    const [formData, setFormData] = useState({
+        prescriptionDate: '', 
+        practice: '', 
+        diagnosis: '', 
+        medicalLicense: '', 
+        attachment: null,
+        // --- Usaremos los IDs ---
+        auditor_id: '', 
+        provider_id: '', 
+        observations: '', 
+        isImportant: false
+    });
+
+    // --- LÓGICA DE LA UI (SIN CAMBIOS) ---
     const isPracticeSectionUnlocked = useMemo(() => beneficiary?.activo === true, [beneficiary]);
-
     const dateValidation = useMemo(() => {
         if (!formData.prescriptionDate) return { isValid: false, error: null };
         const today = new Date();
@@ -61,41 +74,55 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         return fieldsAreComplete && dateValidation.isValid;
     }, [isPracticeSectionUnlocked, formData, dateValidation.isValid]);
 
+    // --- EFECTO PARA CARGAR DATOS INICIALES (MODO VISTA/EDICIÓN) ---
     useEffect(() => {
-        if (initialData && initialData.details) {
-            const { details } = initialData;
-            if (details.beneficiaryData) {
-                setBeneficiary(details.beneficiaryData);
-                setCuil(details.beneficiaryData.cuil);
-            }
+        if (initialData) {
+            const details = initialData.details || {};
+            setBeneficiary(details.beneficiaryData || null);
+            setCuil(details.beneficiaryData?.cuil || '');
+            
+            // Usamos los nombres de campo de la BD (provider_id, auditor_id)
             setFormData({
                 prescriptionDate: details.prescriptionDate || '',
                 practice: initialData.title || '',
                 diagnosis: details.diagnosis || '',
                 medicalLicense: details.solicitanteMatricula || '',
-                attachment: null,
-                auditor: details.auditorMedico || '',
-                providerId: details.prestadorId || '',
+                attachment: null, // El archivo no se puede recargar
+                auditor_id: initialData.auditor_id || '',
+                provider_id: initialData.provider_id || '',
                 observations: details.observations || '',
                 isImportant: initialData.isImportant || false,
             });
         }
     }, [initialData]);
 
+    // --- EFECTO PARA CARGAR DATOS DE PRESTADORES Y AUDITORES ---
     useEffect(() => {
-        async function fetchProviders() {
-            if (isReadOnly && !isEditing) return;
+        const fetchData = async () => {
             try {
-                const response = await fetch('/api/prestadores/all');
-                if (!response.ok) throw new Error('No se pudieron cargar los prestadores.');
-                const data = await response.json();
-                setProviders(data);
+                // Usamos Promise.all para cargar ambos al mismo tiempo
+                const [providersRes, auditorsRes] = await Promise.all([
+                    fetch('/api/prestadores/all'),
+                    fetch('/api/users?role=auditor') // Llamamos a la nueva API
+                ]);
+
+                if (!providersRes.ok) throw new Error('No se pudieron cargar los prestadores.');
+                if (!auditorsRes.ok) throw new Error('No se pudieron cargar los auditores.');
+
+                const providersData = await providersRes.json();
+                const auditorsData = await auditorsRes.json();
+
+                setProviders(providersData);
+                setAuditors(auditorsData);
             } catch (error) {
-                console.error("Error al cargar prestadores:", error);
-                toast.error("No se pudieron cargar los prestadores.");
+                console.error("Error al cargar datos:", error);
+                toast.error(error.message || "No se pudieron cargar datos para el formulario.");
             }
+        };
+
+        if (!isReadOnly || isEditing) {
+            fetchData();
         }
-        fetchProviders();
     }, [isReadOnly, isEditing]);
 
     useEffect(() => {
@@ -104,9 +131,16 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
 
     const handleInputChange = (e) => {
         const { name, value, type, checked, files } = e.target;
-        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : (type === 'file' ? files?.[0] : value) }));
-    };
+        
+        // Convertimos los IDs a número si vienen de un select, sino lo dejamos como está.
+        const finalValue = name.endsWith('_id') && value ? parseInt(value, 10) : (type === 'checkbox' ? checked : (type === 'file' ? files?.[0] : value));
 
+        setFormData(prev => ({ 
+            ...prev, 
+            [name]: finalValue
+        }));
+    };
+    
     const handleSearchBeneficiary = async () => {
         if (beneficiary && String(beneficiary.cuil) === String(cuil)) return;
         if (!cuil) return;
@@ -191,9 +225,9 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    auditor: formData.auditor,
-                    providerId: formData.providerId,
-                    observations: formData.observations,
+                    auditor_id: formData.auditor_id || null,
+                    provider_id: formData.provider_id || null,
+                    status: 'En Auditoría' // o el estado que corresponda
                 }),
             });
             if (!response.ok) {
@@ -211,7 +245,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
     };
 
     const suggestedProviders = useMemo(() => {
-        if (!formData.practice) return [];
+        if (!formData.practice) return providers;
         const providerIds = practiceToProviderMap[formData.practice] || [];
         return providers.filter(p => providerIds.includes(p.id));
     }, [formData.practice, providers]);
@@ -224,7 +258,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
 
 
     return (
-        <form onSubmit={handleFormSubmit} className="flex flex-col h-full bg-gray-50">
+        <form onSubmit={initialData ? handleSaveChanges : handleFormSubmit} className="flex flex-col h-full bg-gray-50">
             <div className="flex-shrink-0 flex items-center justify-between p-4 border-b bg-white rounded-t-lg">
                 <h2 className="text-xl font-semibold text-gray-800">{isReadOnly ? `Detalle Solicitud: #${initialData?.id}` : 'Nueva Solicitud'}</h2>
                 <button type="button" onClick={closeModal} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600"><XMarkIcon className="h-6 w-6" /></button>
@@ -255,10 +289,10 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                     {!isPracticeSectionUnlocked && <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center rounded-lg z-10"><LockClosedIcon className="h-8 w-8 text-gray-500" /></div>}
                     <h3 className="font-semibold text-lg mb-3 text-gray-800">Práctica Médica</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField label="Fecha de Prescripción" htmlFor="prescriptionDate"><input type="date" name="prescriptionDate" value={formData.prescriptionDate} onChange={handleInputChange} disabled={isReadOnly} className="form-input w-full" /></FormField>
-                        <FormField label="Práctica Solicitada" htmlFor="practice"><select name="practice" value={formData.practice} onChange={handleInputChange} disabled={isReadOnly} className="form-select w-full"><option value="">Seleccione...</option>{medicalPractices.map(p => <option key={p} value={p}>{p}</option>)}</select></FormField>
-                        <FormField label="Diagnóstico Presuntivo" htmlFor="diagnosis"><input type="text" name="diagnosis" value={formData.diagnosis} onChange={handleInputChange} disabled={isReadOnly} className="form-input w-full" /></FormField>
-                        <FormField label="Matrícula Solicitante" htmlFor="medicalLicense"><input type="text" name="medicalLicense" value={formData.medicalLicense} onChange={handleInputChange} disabled={isReadOnly} className="form-input w-full" /></FormField>
+                        <FormField label="Fecha de Prescripción" htmlFor="prescriptionDate"><input type="date" name="prescriptionDate" value={formData.prescriptionDate} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-input w-full" /></FormField>
+                        <FormField label="Práctica Solicitada" htmlFor="practice"><select name="practice" value={formData.practice} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full"><option value="">Seleccione...</option>{medicalPractices.map(p => <option key={p} value={p}>{p}</option>)}</select></FormField>
+                        <FormField label="Diagnóstico Presuntivo" htmlFor="diagnosis"><input type="text" name="diagnosis" value={formData.diagnosis} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-input w-full" /></FormField>
+                        <FormField label="Matrícula Solicitante" htmlFor="medicalLicense"><input type="text" name="medicalLicense" value={formData.medicalLicense} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-input w-full" /></FormField>
                         <FormField label="Adjuntar Orden" htmlFor="attachment">
                             {isReadOnly ? ( initialData?.details?.attachmentUrl ? <a href={initialData.details.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center space-x-2 text-indigo-600 hover:text-indigo-800 underline"><PaperClipIcon className="h-5 w-5" /><span>Ver Orden Adjunta</span></a> : <p className="text-gray-500">No hay orden adjunta.</p> ) 
                             : ( <div> <input type="file" id="attachment" name="attachment" onChange={handleInputChange} className="form-input w-full" /> {formData.attachment && typeof formData.attachment === 'object' && ( <a href={URL.createObjectURL(formData.attachment)} target="_blank" rel="noopener noreferrer" className="text-sm text-indigo-600 hover:text-indigo-800 underline mt-1 inline-block">Previsualizar archivo seleccionado</a> )} </div> )}
@@ -269,10 +303,24 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                 <div className={`p-4 border rounded-lg bg-white relative ${(!isPracticeSectionUnlocked || (isReadOnly && !isEditing)) && 'opacity-50'}`}>
                     {!isPracticeSectionUnlocked && <div className="absolute inset-0 bg-gray-100 bg-opacity-50 flex items-center justify-center rounded-lg z-10"><LockClosedIcon className="h-8 w-8 text-gray-500" /></div>}
                     <h3 className="font-semibold text-lg mb-3 text-gray-800">Auditoría y Prestación</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField label="Auditor Médico" htmlFor="auditor"><select name="auditor" value={formData.auditor} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full"><option value="">Seleccione...</option>{auditors.map(a => <option key={a} value={a}>{a}</option>)}</select></FormField>
-                        <FormField label="Prestador Sugerido" htmlFor="providerId"><select name="providerId" value={formData.providerId} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full"><option value="">Seleccione...</option>{suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.razonSocial}</option>)}</select></FormField>
-                        <div className="md:col-span-2"><FormField label="Observaciones" htmlFor="observations"><textarea name="observations" value={formData.observations} onChange={handleInputChange} disabled={isReadOnly && !isEditing} rows="3" className="form-textarea w-full"></textarea></FormField></div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField label="Auditor Médico" htmlFor="auditor_id">
+                            <select name="auditor_id" value={formData.auditor_id} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full">
+                                <option value="">Seleccione...</option>
+                                {auditors.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                            </select>
+                        </FormField>
+                        <FormField label="Prestador Sugerido" htmlFor="provider_id">
+                            <select name="provider_id" value={formData.provider_id} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full">
+                                <option value="">Seleccione...</option>
+                                {suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.razonSocial}</option>)}
+                            </select>
+                        </FormField>
+                        <div className="md:col-span-2">
+                            <FormField label="Observaciones" htmlFor="observations">
+                                <textarea name="observations" value={formData.observations} onChange={handleInputChange} disabled={isReadOnly && !isEditing} rows="3" className="form-textarea w-full"></textarea>
+                            </FormField>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -301,7 +349,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                             </button>
                         </div>
                     ) : ( // Modo VISTA
-                         <button type="button" onClick={closeModal} className="bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg border">Cerrar</button>
+                        <button type="button" onClick={closeModal} className="bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg border">Cerrar</button>
                     )}
                 </div>
             </div>

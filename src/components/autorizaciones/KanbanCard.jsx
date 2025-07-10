@@ -1,6 +1,9 @@
 // src/components/autorizaciones/KanbanCard.jsx
 
+// --- IMPORTACIONES CORREGIDAS ---
 import { StarIcon } from '@heroicons/react/24/solid';
+// PRUEBA DE DEPURACIÓN: Se reemplaza UserCheckIcon por CheckCircleIcon para aislar el error.
+import { BuildingOffice2Icon, CheckCircleIcon } from '@heroicons/react/24/outline';
 
 export default function KanbanCard({ auth, onViewDetails }) {
   const typeColors = {
@@ -10,23 +13,44 @@ export default function KanbanCard({ auth, onViewDetails }) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-md shadow-sm border border-gray-200 hover:shadow-md">
-      <div className="flex justify-between items-start">
-        <span className={`text-xs font-semibold px-2 py-1 rounded-full ${typeColors[auth.type] || 'bg-gray-100'}`}>
-          {auth.type}
-        </span>
-        <div className="flex items-center space-x-2">
-          {auth.isImportant && <StarIcon className="w-4 h-4 text-yellow-500" title="Importante" />}
-          <span className="text-xs text-gray-500">{auth.date}</span>
+    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:shadow-md flex flex-col justify-between h-full">
+      <div>
+        <div className="flex justify-between items-start">
+          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${typeColors[auth.type] || 'bg-gray-100'}`}>
+            {auth.type}
+          </span>
+          <div className="flex items-center space-x-2">
+            {auth.isImportant && <StarIcon className="w-4 h-4 text-yellow-500" title="Importante" />}
+            <span className="text-xs text-gray-500">{auth.date}</span>
+          </div>
         </div>
+        <p className="font-bold text-gray-800 mt-2">{auth.title || 'Sin Título'}</p>
+        <p className="text-sm text-gray-600 mb-3">{auth.beneficiary || 'Sin Beneficiario'}</p>
+
+        {(auth.provider_name || auth.auditor_name) && (
+          <div className="mt-3 pt-3 border-t border-gray-200/80 space-y-2">
+            {auth.provider_name && (
+              <div className="flex items-center text-xs text-gray-700">
+                <BuildingOffice2Icon className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                <span className="font-medium truncate" title={auth.provider_name}>{auth.provider_name}</span>
+              </div>
+            )}
+            {auth.auditor_name && (
+              <div className="flex items-center text-xs text-gray-700">
+                {/* PRUEBA DE DEPURACIÓN: Usando CheckCircleIcon temporalmente */}
+                <CheckCircleIcon className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                <span className="font-medium">{auth.auditor_name}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      <p className="font-bold text-gray-800 mt-2">{auth.title || 'Sin Título'}</p>
-      <p className="text-sm text-gray-600">{auth.beneficiary || 'Sin Beneficiario'}</p>
-      <div className="mt-3 pt-3 border-t flex justify-between items-center">
+
+      <div className="mt-4 pt-3 border-t flex justify-between items-center">
         <span className="text-xs font-bold text-gray-500">ID: {auth.id}</span>
         <button 
           onClick={() => onViewDetails(auth)}
-          className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-md"
+          className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-md font-semibold text-gray-700"
         >
           Ver Detalle
         </button>
