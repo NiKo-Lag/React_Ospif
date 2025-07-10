@@ -16,7 +16,6 @@ const calculateAge = (birthDateString) => {
     return age;
 };
 
-// Estos datos ahora se obtendrán desde la API o se usarán para la lógica interna.
 const medicalPractices = ["Consulta Médica", "Tomografía Computada", "Resonancia Magnética Nuclear", "Análisis de Sangre Completo", "Endoscopía Digestiva Alta", "Ecografía Abdominal"];
 const practiceToProviderMap = { "Tomografía Computada": [1, 3], "Resonancia Magnética Nuclear": [3], "Análisis de Sangre Completo": [1, 2, 3], "Consulta Médica": [1, 2]};
 
@@ -27,7 +26,8 @@ const FormField = ({ label, children, htmlFor }) => (
     </div>
 );
 
-export default function AuthorizationForm({ onSuccess, closeModal, initialData = null, isReadOnly = false }) {
+// --- 1. Recibimos la nueva prop 'internmentId' ---
+export default function AuthorizationForm({ onSuccess, closeModal, initialData = null, isReadOnly = false, internmentId = null }) {
     const [isEditing, setIsEditing] = useState(!isReadOnly);
     const [cuil, setCuil] = useState('');
     const [beneficiary, setBeneficiary] = useState(null);
@@ -35,7 +35,6 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
     const [beneficiaryError, setBeneficiaryError] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     
-    // --- ESTADOS PARA DATOS DE APIS ---
     const [providers, setProviders] = useState([]);
     const [auditors, setAuditors] = useState([]);
 
@@ -45,14 +44,12 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         diagnosis: '', 
         medicalLicense: '', 
         attachment: null,
-        // --- Usaremos los IDs ---
         auditor_id: '', 
         provider_id: '', 
         observations: '', 
         isImportant: false
     });
 
-    // --- LÓGICA DE LA UI (SIN CAMBIOS) ---
     const isPracticeSectionUnlocked = useMemo(() => beneficiary?.activo === true, [beneficiary]);
     const dateValidation = useMemo(() => {
         if (!formData.prescriptionDate) return { isValid: false, error: null };
@@ -74,20 +71,18 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         return fieldsAreComplete && dateValidation.isValid;
     }, [isPracticeSectionUnlocked, formData, dateValidation.isValid]);
 
-    // --- EFECTO PARA CARGAR DATOS INICIALES (MODO VISTA/EDICIÓN) ---
     useEffect(() => {
         if (initialData) {
             const details = initialData.details || {};
             setBeneficiary(details.beneficiaryData || null);
             setCuil(details.beneficiaryData?.cuil || '');
             
-            // Usamos los nombres de campo de la BD (provider_id, auditor_id)
             setFormData({
                 prescriptionDate: details.prescriptionDate || '',
                 practice: initialData.title || '',
                 diagnosis: details.diagnosis || '',
                 medicalLicense: details.solicitanteMatricula || '',
-                attachment: null, // El archivo no se puede recargar
+                attachment: null,
                 auditor_id: initialData.auditor_id || '',
                 provider_id: initialData.provider_id || '',
                 observations: details.observations || '',
@@ -96,14 +91,12 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         }
     }, [initialData]);
 
-    // --- EFECTO PARA CARGAR DATOS DE PRESTADORES Y AUDITORES ---
     useEffect(() => {
         const fetchData = async () => {
             try {
-                // Usamos Promise.all para cargar ambos al mismo tiempo
                 const [providersRes, auditorsRes] = await Promise.all([
                     fetch('/api/prestadores/all'),
-                    fetch('/api/users?role=auditor') // Llamamos a la nueva API
+                    fetch('/api/users?role=auditor')
                 ]);
 
                 if (!providersRes.ok) throw new Error('No se pudieron cargar los prestadores.');
@@ -131,20 +124,13 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
 
     const handleInputChange = (e) => {
         const { name, value, type, checked, files } = e.target;
-        
-        // Convertimos los IDs a número si vienen de un select, sino lo dejamos como está.
         const finalValue = name.endsWith('_id') && value ? parseInt(value, 10) : (type === 'checkbox' ? checked : (type === 'file' ? files?.[0] : value));
-
-        setFormData(prev => ({ 
-            ...prev, 
-            [name]: finalValue
-        }));
+        setFormData(prev => ({ ...prev, [name]: finalValue }));
     };
     
     const handleSearchBeneficiary = async () => {
         if (beneficiary && String(beneficiary.cuil) === String(cuil)) return;
-        if (!cuil) return;
-        if (!/^\d{11}$/.test(cuil)) {
+        if (!cuil || !/^\d{11}$/.test(cuil)) {
             if (cuil) setBeneficiaryError('CUIL inválido. Debe contener 11 dígitos sin guiones.');
             return;
         }
@@ -174,13 +160,21 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
         }
         setIsSubmitting(true);
         const dataToSubmit = new FormData();
+        
+        // --- 2. Añadimos el ID de la internación al FormData si existe ---
+        if (internmentId) {
+            dataToSubmit.append('internment_id', internmentId);
+        }
+
         dataToSubmit.append('type', 'Práctica Médica');
         dataToSubmit.append('title', formData.practice);
         if (formData.attachment) dataToSubmit.append('attachment', formData.attachment);
+        
         const detailsToSubmit = { ...formData };
         delete detailsToSubmit.attachment;
         const details = { beneficiaryData: beneficiary, ...detailsToSubmit };
         dataToSubmit.append('details', JSON.stringify(details));
+        
         try {
             const response = await fetch('/api/autorizaciones', { method: 'POST', body: dataToSubmit });
             if (!response.ok) {

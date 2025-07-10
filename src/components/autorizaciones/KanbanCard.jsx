@@ -1,9 +1,8 @@
 // src/components/autorizaciones/KanbanCard.jsx
 
-// --- IMPORTACIONES CORREGIDAS ---
-import { StarIcon } from '@heroicons/react/24/solid';
-// PRUEBA DE DEPURACIÓN: Se reemplaza UserCheckIcon por CheckCircleIcon para aislar el error.
-import { BuildingOffice2Icon, CheckCircleIcon } from '@heroicons/react/24/outline';
+// --- CORRECCIÓN DEFINITIVA: Se reemplaza UserCheckIcon por un ícono diferente para evitar el error de importación ---
+import { StarIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
+import { BuildingOffice2Icon } from '@heroicons/react/24/outline';
 
 export default function KanbanCard({ auth, onViewDetails }) {
   const typeColors = {
@@ -13,11 +12,11 @@ export default function KanbanCard({ auth, onViewDetails }) {
   };
 
   return (
-    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:shadow-md flex flex-col justify-between h-full">
+    <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:shadow-md flex flex-col justify-between">
       <div>
         <div className="flex justify-between items-start">
           <span className={`text-xs font-semibold px-2 py-1 rounded-full ${typeColors[auth.type] || 'bg-gray-100'}`}>
-            {auth.type}
+            {auth.type || 'Práctica Médica'}
           </span>
           <div className="flex items-center space-x-2">
             {auth.isImportant && <StarIcon className="w-4 h-4 text-yellow-500" title="Importante" />}
@@ -37,7 +36,7 @@ export default function KanbanCard({ auth, onViewDetails }) {
             )}
             {auth.auditor_name && (
               <div className="flex items-center text-xs text-gray-700">
-                {/* PRUEBA DE DEPURACIÓN: Usando CheckCircleIcon temporalmente */}
+                {/* Se utiliza el nuevo ícono */}
                 <CheckCircleIcon className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
                 <span className="font-medium">{auth.auditor_name}</span>
               </div>

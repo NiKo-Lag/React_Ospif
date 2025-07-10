@@ -11,10 +11,7 @@ const pool = new Pool({
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-/**
- * Obtiene todas las autorizaciones para el tablero Kanban.
- * **VERSIÓN FINAL CON JOINS**
- */
+// La función GET no necesita cambios.
 export async function GET() {
   try {
     const query = `
@@ -44,23 +41,19 @@ export async function GET() {
 
 /**
  * Crea una nueva autorización.
- * **CON LOG DE DEPURACIÓN FINAL**
+ * **FUNCIÓN ACTUALIZADA**
  */
 export async function POST(request) {
   try {
     const formData = await request.formData();
     const detailsString = formData.get('details');
     const attachment = formData.get('attachment');
+    // --- 1. Obtenemos el ID de la internación desde el FormData ---
+    const internmentId = formData.get('internment_id') || null;
     
     if (!detailsString) {
       return NextResponse.json({ message: 'Faltan los detalles de la solicitud.' }, { status: 400 });
     }
-
-    // --- ¡¡¡LOG DE DEPURACIÓN IMPORTANTE!!! ---
-    // Esto nos mostrará exactamente qué está enviando el formulario.
-    console.log("--- DEBUG POST: 'details' JSON string recibido del formulario ---");
-    console.log(detailsString);
-    console.log("-------------------------------------------------------------");
 
     const details = JSON.parse(detailsString);
     
@@ -92,9 +85,10 @@ export async function POST(request) {
       attachmentUrl: attachmentUrl,
     };
 
+    // --- 2. Actualizamos la consulta para incluir 'internment_id' ---
     const query = `
-      INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details, provider_id, auditor_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details, provider_id, auditor_id, internment_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *;
     `;
     
@@ -107,7 +101,9 @@ export async function POST(request) {
       details.isImportant || false,
       JSON.stringify(finalDetails),
       providerId,
-      auditorId
+      auditorId,
+      // --- 3. Añadimos el ID de la internación a los valores ---
+      internmentId
     ];
 
     const result = await pool.query(query, values);
