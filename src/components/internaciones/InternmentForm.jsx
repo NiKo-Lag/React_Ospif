@@ -13,7 +13,8 @@ const FormField = ({ label, children, htmlFor }) => (
     </div>
 );
 
-export default function InternmentForm({ onSuccess, closeModal }) {
+// 1. Aceptamos la nueva prop 'providerContext'
+export default function InternmentForm({ onSuccess, closeModal, providerContext = null }) {
     const [formData, setFormData] = useState({
         beneficiaryCuil: '',
         admissionDate: '',
@@ -29,6 +30,14 @@ export default function InternmentForm({ onSuccess, closeModal }) {
     const [loadingBeneficiary, setLoadingBeneficiary] = useState(false);
     const [beneficiaryError, setBeneficiaryError] = useState('');
 
+    // 2. Efecto para pre-cargar el prestador si viene del portal
+    useEffect(() => {
+        if (providerContext && providerContext.id) {
+            setFormData(prev => ({ ...prev, notifyingProviderId: providerContext.id }));
+        }
+    }, [providerContext]);
+
+    // Cargar la lista completa de prestadores solo si no estamos en el portal
     useEffect(() => {
         async function fetchProviders() {
             try {
@@ -41,8 +50,11 @@ export default function InternmentForm({ onSuccess, closeModal }) {
                 toast.error("No se pudieron cargar los prestadores.");
             }
         }
-        fetchProviders();
-    }, []);
+        // Si no hay contexto de prestador (estamos en el back-office), cargamos la lista
+        if (!providerContext) {
+            fetchProviders();
+        }
+    }, [providerContext]);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -90,10 +102,11 @@ export default function InternmentForm({ onSuccess, closeModal }) {
             reason: formData.reason,
             requestingDoctor: formData.requestingDoctor,
             notifyingProviderId: formData.notifyingProviderId,
+            // 3. Añadimos el origen de la denuncia
+            source: providerContext ? 'Portal' : 'Manual'
         };
 
         try {
-            // --- CORRECCIÓN: Apuntamos a la URL correcta /api/internment ---
             const response = await fetch('/api/internment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -101,19 +114,10 @@ export default function InternmentForm({ onSuccess, closeModal }) {
             });
             
             if (!response.ok) {
-                // Si la respuesta no es JSON, el error se captura aquí
-                const errorText = await response.text();
-                let errorData;
-                try {
-                    errorData = JSON.parse(errorText);
-                } catch (parseError) {
-                    // Si no se puede parsear, es probable que sea una página de error HTML
-                    throw new Error("La API devolvió una respuesta inesperada. Verifique la URL y la ruta del servidor.");
-                }
+                const errorData = await response.json();
                 throw new Error(errorData.message || 'Falló el envío de la denuncia.');
             }
             
-            toast.success('¡Internación denunciada con éxito!');
             onSuccess();
         } catch (error) {
             toast.error(error.message);
@@ -152,9 +156,24 @@ export default function InternmentForm({ onSuccess, closeModal }) {
                     <h3 className="font-semibold text-lg mb-3 text-gray-800">Detalles de la Internación</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormField label="Prestador que notifica" htmlFor="notifyingProviderId">
-                            <select name="notifyingProviderId" value={formData.notifyingProviderId} onChange={handleInputChange} className="form-select w-full">
-                                <option value="">Seleccione un prestador...</option>
-                                {providers.map(p => <option key={p.id} value={p.id}>{p.razonSocial}</option>)}
+                            <select 
+                                name="notifyingProviderId" 
+                                value={formData.notifyingProviderId} 
+                                onChange={handleInputChange} 
+                                // 4. Deshabilitamos el campo si viene del portal
+                                disabled={!!providerContext}
+                                className="form-select w-full disabled:bg-gray-100"
+                            >
+                                {providerContext ? (
+                                    // Si estamos en el portal, solo mostramos el prestador actual
+                                    <option value={providerContext.id}>{providerContext.name}</option>
+                                ) : (
+                                    // Si estamos en el back-office, mostramos la lista completa
+                                    <>
+                                        <option value="">Seleccione un prestador...</option>
+                                        {providers.map(p => <option key={p.id} value={p.id}>{p.razonsocial}</option>)}
+                                    </>
+                                )}
                             </select>
                         </FormField>
                         <FormField label="Fecha de Ingreso" htmlFor="admissionDate">

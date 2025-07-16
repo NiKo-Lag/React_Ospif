@@ -17,7 +17,7 @@ const calculateAge = (birthDateString) => {
 };
 
 const medicalPractices = ["Consulta Médica", "Tomografía Computada", "Resonancia Magnética Nuclear", "Análisis de Sangre Completo", "Endoscopía Digestiva Alta", "Ecografía Abdominal"];
-const practiceToProviderMap = { "Tomografía Computada": [1, 3], "Resonancia Magnética Nuclear": [3], "Análisis de Sangre Completo": [1, 2, 3], "Consulta Médica": [1, 2]};
+const practiceToProviderMap = { "Tomografía Computada": [1, 3], "Resonancia Magnética Nuclear": [3], "Análisis de Sangre Completo": [1, 2, 3, 4], "Consulta Médica": [1, 2]};
 
 const FormField = ({ label, children, htmlFor }) => (
     <div>
@@ -26,8 +26,14 @@ const FormField = ({ label, children, htmlFor }) => (
     </div>
 );
 
-// --- 1. Recibimos la nueva prop 'internmentId' ---
-export default function AuthorizationForm({ onSuccess, closeModal, initialData = null, isReadOnly = false, internmentId = null }) {
+export default function AuthorizationForm({ 
+    onSuccess, 
+    closeModal, 
+    initialData = null, 
+    isReadOnly = false, 
+    internmentId = null,
+    initialBeneficiary = null 
+}) {
     const [isEditing, setIsEditing] = useState(!isReadOnly);
     const [cuil, setCuil] = useState('');
     const [beneficiary, setBeneficiary] = useState(null);
@@ -51,8 +57,9 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
     });
 
     const isPracticeSectionUnlocked = useMemo(() => beneficiary?.activo === true, [beneficiary]);
+    
     const dateValidation = useMemo(() => {
-        if (!formData.prescriptionDate) return { isValid: false, error: null };
+        if (!formData.prescriptionDate) return { isValid: true, error: null };
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const thirtyDaysAgo = new Date();
@@ -67,16 +74,22 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
 
     const isAuditSectionUnlocked = useMemo(() => {
         if (!isPracticeSectionUnlocked) return false;
-        const fieldsAreComplete = formData.prescriptionDate && formData.practice && formData.diagnosis && formData.medicalLicense && formData.attachment;
+        const fieldsAreComplete = formData.prescriptionDate && formData.practice && formData.diagnosis && formData.medicalLicense;
         return fieldsAreComplete && dateValidation.isValid;
     }, [isPracticeSectionUnlocked, formData, dateValidation.isValid]);
 
     useEffect(() => {
-        if (initialData) {
+        if (internmentId && initialBeneficiary) {
+            setBeneficiary(initialBeneficiary);
+            setCuil(initialBeneficiary.cuil);
+            if (initialData?.provider_id) {
+                 setFormData(prev => ({ ...prev, provider_id: initialData.provider_id }));
+            }
+        } 
+        else if (initialData) {
             const details = initialData.details || {};
             setBeneficiary(details.beneficiaryData || null);
             setCuil(details.beneficiaryData?.cuil || '');
-            
             setFormData({
                 prescriptionDate: details.prescriptionDate || '',
                 practice: initialData.title || '',
@@ -89,7 +102,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                 isImportant: initialData.isImportant || false,
             });
         }
-    }, [initialData]);
+    }, [initialData, internmentId, initialBeneficiary]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -98,13 +111,10 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                     fetch('/api/prestadores/all'),
                     fetch('/api/users?role=auditor')
                 ]);
-
                 if (!providersRes.ok) throw new Error('No se pudieron cargar los prestadores.');
                 if (!auditorsRes.ok) throw new Error('No se pudieron cargar los auditores.');
-
                 const providersData = await providersRes.json();
                 const auditorsData = await auditorsRes.json();
-
                 setProviders(providersData);
                 setAuditors(auditorsData);
             } catch (error) {
@@ -112,15 +122,10 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                 toast.error(error.message || "No se pudieron cargar datos para el formulario.");
             }
         };
-
         if (!isReadOnly || isEditing) {
             fetchData();
         }
     }, [isReadOnly, isEditing]);
-
-    useEffect(() => {
-        if (dateValidation.error) toast.error(dateValidation.error, { id: 'date-error' });
-    }, [dateValidation.error]);
 
     const handleInputChange = (e) => {
         const { name, value, type, checked, files } = e.target;
@@ -154,14 +159,13 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
 
     const handleFormSubmit = async (e) => {
         e.preventDefault();
-        if (!isAuditSectionUnlocked) {
-            toast.error("Complete los campos obligatorios.");
+        if (!isPracticeSectionUnlocked) {
+            toast.error("Beneficiario inactivo o no seleccionado.");
             return;
         }
         setIsSubmitting(true);
         const dataToSubmit = new FormData();
         
-        // --- 2. Añadimos el ID de la internación al FormData si existe ---
         if (internmentId) {
             dataToSubmit.append('internment_id', internmentId);
         }
@@ -188,29 +192,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
             setIsSubmitting(false);
         }
     };
-
-    const handleUpdateStatus = async (newStatus) => {
-        if (!initialData || !initialData.id) return;
-        setIsSubmitting(true);
-        try {
-            const response = await fetch(`/api/autorizaciones/${initialData.id}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: newStatus }),
-            });
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || `No se pudo ${newStatus.toLowerCase()} la solicitud.`);
-            }
-            toast.success(`Solicitud ${newStatus.toLowerCase()}a con éxito.`);
-            onSuccess();
-        } catch (error) {
-            toast.error(error.message);
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
+    
     const handleSaveChanges = async () => {
         if (!initialData?.id) return;
         setIsSubmitting(true);
@@ -221,7 +203,7 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                 body: JSON.stringify({
                     auditor_id: formData.auditor_id || null,
                     provider_id: formData.provider_id || null,
-                    status: 'En Auditoría' // o el estado que corresponda
+                    status: 'En Auditoría'
                 }),
             });
             if (!response.ok) {
@@ -254,17 +236,31 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
     return (
         <form onSubmit={initialData ? handleSaveChanges : handleFormSubmit} className="flex flex-col h-full bg-gray-50">
             <div className="flex-shrink-0 flex items-center justify-between p-4 border-b bg-white rounded-t-lg">
-                <h2 className="text-xl font-semibold text-gray-800">{isReadOnly ? `Detalle Solicitud: #${initialData?.id}` : 'Nueva Solicitud'}</h2>
+                <h2 className="text-xl font-semibold text-gray-800">
+                    {internmentId ? `Adjuntar Práctica a Internación #${internmentId}` : (isReadOnly ? `Detalle Solicitud: #${initialData?.id}` : 'Nueva Solicitud')}
+                </h2>
                 <button type="button" onClick={closeModal} className="p-1 rounded-full text-gray-400 hover:bg-gray-200 hover:text-gray-600"><XMarkIcon className="h-6 w-6" /></button>
             </div>
 
             <div className="flex-grow p-6 space-y-6 overflow-y-auto">
-                <div className={`p-4 border rounded-lg transition-colors duration-300 ${!beneficiary ? 'bg-white' : beneficiary.activo ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                <div className={`p-4 border rounded-lg transition-all duration-300 ${!beneficiary ? 'bg-white' : beneficiary.activo ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} ${internmentId ? 'opacity-70 bg-gray-50' : ''}`}>
                     <h3 className="font-semibold text-lg mb-3 text-gray-800">Beneficiario</h3>
                     <FormField label="CUIL" htmlFor="cuil">
                         <div className="flex">
-                            <input type="text" id="cuil" value={cuil} onChange={(e) => setCuil(e.target.value)} onBlur={handleSearchBeneficiary} placeholder="Ingrese 11 dígitos sin guiones" disabled={isReadOnly} className="form-input w-full rounded-r-none" />
-                            <button type="button" onClick={handleSearchBeneficiary} disabled={loadingBeneficiary || isReadOnly} className="bg-indigo-600 text-white px-4 rounded-r-lg hover:bg-indigo-700 disabled:bg-indigo-300">
+                            <input 
+                                type="text" id="cuil" value={cuil} 
+                                onChange={(e) => setCuil(e.target.value)} 
+                                onBlur={handleSearchBeneficiary} 
+                                placeholder="Ingrese 11 dígitos sin guiones" 
+                                disabled={isReadOnly || !!internmentId} 
+                                className="form-input w-full rounded-r-none" 
+                            />
+                            <button 
+                                type="button" 
+                                onClick={handleSearchBeneficiary} 
+                                disabled={loadingBeneficiary || isReadOnly || !!internmentId} 
+                                className="bg-indigo-600 text-white px-4 rounded-r-lg hover:bg-indigo-700 disabled:bg-indigo-300"
+                            >
                                 {loadingBeneficiary ? '...' : 'Buscar'}
                             </button>
                         </div>
@@ -305,9 +301,16 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                             </select>
                         </FormField>
                         <FormField label="Prestador Sugerido" htmlFor="provider_id">
-                            <select name="provider_id" value={formData.provider_id} onChange={handleInputChange} disabled={isReadOnly && !isEditing} className="form-select w-full">
+                            {/* --- CORRECCIÓN: Se añade la lógica para deshabilitar el campo --- */}
+                            <select 
+                                name="provider_id" 
+                                value={formData.provider_id} 
+                                onChange={handleInputChange} 
+                                disabled={(isReadOnly && !isEditing) || !!internmentId} 
+                                className="form-select w-full"
+                            >
                                 <option value="">Seleccione...</option>
-                                {suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.razonSocial}</option>)}
+                                {suggestedProviders.map(p => <option key={p.id} value={p.id}>{p.razonsocial}</option>)}
                             </select>
                         </FormField>
                         <div className="md:col-span-2">
@@ -328,21 +331,21 @@ export default function AuthorizationForm({ onSuccess, closeModal, initialData =
                     )}
                 </div>
                 <div>
-                    {!isReadOnly ? ( // Modo NUEVO
+                    {!isReadOnly ? (
                         <div className="flex space-x-3">
                             <button type="button" onClick={closeModal} className="bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg border">Cancelar</button>
-                            <button type="submit" disabled={isSubmitting || !isAuditSectionUnlocked} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50">
+                            <button type="submit" disabled={isSubmitting || !isPracticeSectionUnlocked} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50">
                                 {isSubmitting ? 'Guardando...' : 'Guardar Solicitud'}
                             </button>
                         </div>
-                    ) : isEditing ? ( // Modo EDICIÓN
+                    ) : isEditing ? (
                         <div className="flex space-x-3">
                             <button type="button" onClick={() => setIsEditing(false)} className="bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg border">Cancelar</button>
                             <button type="button" onClick={handleSaveChanges} disabled={isSubmitting} className="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50">
                                 {isSubmitting ? 'Guardando...' : 'Guardar Cambios'}
                             </button>
                         </div>
-                    ) : ( // Modo VISTA
+                    ) : (
                         <button type="button" onClick={closeModal} className="bg-white hover:bg-gray-100 text-gray-700 font-semibold py-2 px-4 rounded-lg border">Cerrar</button>
                     )}
                 </div>
