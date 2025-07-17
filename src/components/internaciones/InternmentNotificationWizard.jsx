@@ -120,6 +120,11 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
         setLoadingBeneficiary(true);
         setBeneficiary(null);
         try {
+            // NOTA PARA FUTURA MEJORA:
+            // La búsqueda actual solo funciona si el usuario introduce un CUIL de 11 dígitos.
+            // Para soportar DNI, se debería implementar una lógica aquí para:
+            // 1. Detectar si la entrada es un DNI o un CUIL.
+            // 2. Si es un DNI, llamar a un endpoint diferente o a una librería que pueda convertir DNI a CUIL.
             const response = await fetch(`/api/beneficiary/${beneficiarySearch}`);
             const data = await response.json();
             if (!response.ok) throw new Error(data.message);
@@ -160,7 +165,11 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
             for (const file of files) {
                 dataToSubmit.append('files', file);
             }
-            const response = await fetch('/api/internment', { method: 'POST', body: dataToSubmit });
+            const response = await fetch('/api/portal/internments', { 
+                method: 'POST', 
+                body: dataToSubmit,
+                credentials: 'same-origin', // Aseguramos que se envíe la cookie de autenticación
+            });
             if (!response.ok) {
                 const errorData = await response.json();
                 throw new Error(errorData.message || 'Falló el envío.');
@@ -217,8 +226,17 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
                         <div>
                             <label className="block mb-2 text-sm font-medium text-gray-700">Carácter</label>
                             <div className="flex space-x-4">
-                                <label className="flex items-center p-3 border rounded-md flex-1 cursor-pointer hover:bg-gray-50"><input type="radio" name="internmentType" value="urgencia" onChange={handleInputChange} checked={formData.internmentType === 'urgencia'} className="mr-2 text-indigo-600"/>Urgencia</label>
-                                <label className="flex items-center p-3 border rounded-md flex-1 cursor-pointer hover:bg-gray-50"><input type="radio" name="internmentType" value="programada" onChange={handleInputChange} checked={formData.internmentType === 'programada'} className="mr-2 text-indigo-600"/>Programada</label>
+                                <label className="flex items-center p-3 border rounded-md flex-1 cursor-pointer hover:bg-gray-50">
+                                    <input type="radio" name="internmentType" value="urgencia" onChange={handleInputChange} checked={formData.internmentType === 'urgencia'} className="mr-2 text-indigo-600"/>
+                                    Urgencia
+                                </label>
+                                <label className="flex items-center p-3 border rounded-md flex-1 cursor-not-allowed bg-gray-100 opacity-60" title="Las internaciones programadas se gestionan internamente por la obra social.">
+                                    <input type="radio" name="internmentType" value="programada" className="mr-2" disabled/>
+                                    <span className="flex flex-col">
+                                        <span>Programada</span>
+                                        <span className="text-xs text-gray-500">Gestión interna</span>
+                                    </span>
+                                </label>
                             </div>
                         </div>
                         <div><label htmlFor="admissionDatetime" className="block mb-2 text-sm font-medium text-gray-700">Fecha y Hora de Ingreso</label><input type="datetime-local" id="admissionDatetime" value={formData.admissionDatetime} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-md"/></div>

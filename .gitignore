@@ -36,3 +36,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Explicitly include .env.local (NOT RECOMMENDED FOR PRODUCTION)
+!.env.local

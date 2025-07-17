@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { XMarkIcon } from '@heroicons/react/24/solid';
-import { UploadCloudIcon } from '@heroicons/react/24/outline';
+// Se elimina la importación problemática de UploadCloudIcon
 
 const DropZone = ({ files, setFiles }) => {
     const handleDragOver = (e) => {
@@ -38,7 +38,10 @@ const DropZone = ({ files, setFiles }) => {
             >
                 <input id="file-upload-input" type="file" multiple className="hidden" onChange={handleFileSelect} />
                 <div className="space-y-1 text-center">
-                    <UploadCloudIcon className="mx-auto h-12 w-12 text-gray-400" />
+                    {/* --- CORRECCIÓN DEFINITIVA: Se utiliza un SVG en línea en lugar del ícono importado --- */}
+                    <svg className="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3.75 3.75M12 9.75L8.25 13.5M3 17.25V6.75A2.25 2.25 0 015.25 4.5h13.5A2.25 2.25 0 0121 6.75v10.5A2.25 2.25 0 0118.75 21H5.25A2.25 2.25 0 013 17.25z" />
+                    </svg>
                     <p className="text-sm text-gray-600">Arrastre y suelte archivos aquí, o <span className="font-medium text-indigo-600">haga clic para seleccionar</span></p>
                     <p className="text-xs text-gray-500">PDF, PNG, JPG, etc.</p>
                 </div>
@@ -69,10 +72,11 @@ export default function UploadDocumentationForm({ internmentId, onSuccess, close
             const formData = new FormData();
             files.forEach(file => formData.append('files', file));
 
-            // --- CORRECCIÓN: Se añade '/portal' a la URL para que coincida con la API ---
-            const response = await fetch(`/api/portal/internment/${internmentId}/upload`, {
+            // --- CORRECCIÓN: Se ajusta la URL a la ruta correcta (plural) ---
+            const response = await fetch(`/api/portal/internments/${internmentId}/upload`, {
                 method: 'PATCH',
                 body: formData,
+                credentials: 'same-origin', // Incluir cookies en la petición
             });
 
             if (!response.ok) {

@@ -45,7 +45,7 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
                 setLoading(true);
                 setError('');
                 try {
-                    const response = await fetch(`/api/internment/${request.id}`);
+                    const response = await fetch(`/api/portal/internments/${request.id}`);
                     if (!response.ok) {
                         throw new Error('No se pudieron cargar los detalles de la internación.');
                     }

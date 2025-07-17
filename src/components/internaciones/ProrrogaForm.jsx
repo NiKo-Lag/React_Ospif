@@ -38,10 +38,11 @@ export default function ProrrogaForm({ internmentId, onSuccess, closeModal }) {
         
         try {
             // --- CONEXIÓN CON LA API ---
-            const response = await fetch(`/api/internment/${internmentId}/request-extension`, {
+            const response = await fetch(`/api/portal/internments/${internmentId}/request-extension`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(formData),
+                credentials: 'same-origin',
             });
 
             if (!response.ok) {

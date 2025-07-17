@@ -1,6 +1,8 @@
 // src/app/api/beneficiary/[cuil]/route.js
 
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import { verifyToken } from '@/lib/auth';
 
 // La lógica para la API externa es la misma que en tu server.js original
 const SAAS_API_URL = 'https://fosforo.client-api.saas.com.ar/api';
@@ -28,6 +30,17 @@ async function getSaasToken() {
 }
 
 export async function GET(request, { params }) {
+  // --- 1. VERIFICACIÓN DE SESIÓN ---
+  const tokenCookie = cookies().get('token');
+  if (!tokenCookie) {
+    return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
+  }
+  const decodedSession = verifyToken(tokenCookie.value);
+  if (!decodedSession) {
+      return NextResponse.json({ message: 'Sesión inválida o expirada.' }, { status: 401 });
+  }
+  // --- FIN DE VERIFICACIÓN ---
+
   const { cuil } = params;
 
   if (!cuil || !/^\d{11}$/.test(cuil)) {

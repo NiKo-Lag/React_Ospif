@@ -19,7 +19,7 @@ export async function GET(request) {
   try {
     // 1. Verificar la sesión del prestador
     const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
+    const token = cookieStore.get('token');
 
     if (!token) {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });

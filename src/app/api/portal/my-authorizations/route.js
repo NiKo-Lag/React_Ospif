@@ -18,7 +18,7 @@ const JWT_SECRET = process.env.JWT_SECRET_KEY;
 export async function GET(request) {
   try {
     const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
+    const token = cookieStore.get('token');
 
     if (!token) {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });

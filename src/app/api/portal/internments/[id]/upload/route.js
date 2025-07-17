@@ -1,75 +1,129 @@
-// src/app/api/portal/internment/[id]/upload/route.js
-
 import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
-import { cookies } from 'next/headers';
-import { writeFile, mkdir } from 'fs/promises';
+import { promises as fs } from 'fs';
 import path from 'path';
+import { verifyToken } from '@/lib/auth'; // Asumiendo que tienes una función para verificar el token
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-const JWT_SECRET = process.env.JWT_SECRET_KEY;
-
-/**
- * Adjunta nuevos archivos a una internación existente.
- */
-export async function PATCH(request, { params }) {
+// Función para asegurar que el directorio de almacenamiento exista
+async function ensureStorageDirectoryExists() {
+  const storagePath = path.join(process.cwd(), 'storage');
   try {
-    const { id } = params; // ID de la internación
-    const data = await request.formData();
-    const files = data.getAll('files');
+    await fs.access(storagePath);
+  } catch (error) {
+    // Si el directorio no existe, lo creamos
+    await fs.mkdir(storagePath, { recursive: true });
+  }
+}
 
-    if (!files || files.length === 0) {
-      return NextResponse.json({ message: 'No se han enviado archivos.' }, { status: 400 });
+export async function PATCH(request, { params }) {
+  const { id } = params; // ID de la internación
+
+  // 1. Verificar la autenticación del usuario (puedes ajustar esto según tu lógica)
+  const token = request.cookies.get('token')?.value;
+  if (!token) {
+    return NextResponse.json({ message: 'No autenticado' }, { status: 401 });
+  }
+  
+  try {
+    // Suponiendo que el token decodificado contiene el id del prestador
+    const decodedToken = verifyToken(token);
+    if (!decodedToken) {
+        throw new Error("Token inválido o expirado");
     }
 
-    // 1. Verificar la sesión del prestador
-    const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
-    if (!token) {
-      return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
-    }
-    jwt.verify(token.value, JWT_SECRET);
-
-    // 2. Guardar los archivos en el servidor
-    const attachmentUrls = [];
-    for (const file of files) {
-        const bytes = await file.arrayBuffer();
-        const buffer = Buffer.from(bytes);
-        const uploadDir = path.join(process.cwd(), 'storage', 'internments', String(id));
-        await mkdir(uploadDir, { recursive: true });
-        const filePath = path.join(uploadDir, file.name);
-        await writeFile(filePath, buffer);
-        attachmentUrls.push(`/api/files/internments/${id}/${file.name}`);
-    }
-
-    // 3. Actualizar el campo 'details' en la base de datos, añadiendo los nuevos adjuntos
-    const query = `
-      UPDATE internments
-      SET details = jsonb_set(
-          COALESCE(details, '{}'::jsonb),
-          '{attachments}',
-          COALESCE(details->'attachments', '[]'::jsonb) || $1::jsonb,
-          true
-      )
-      WHERE id = $2
-      RETURNING *;
-    `;
+    const formData = await request.formData();
+    const files = formData.getAll('files'); // 'files' debe coincidir con el nombre en el FormData del cliente
     
-    const result = await pool.query(query, [JSON.stringify(attachmentUrls), id]);
-
-    if (result.rowCount === 0) {
-      return NextResponse.json({ message: 'No se pudo actualizar la internación. Verifique el ID.' }, { status: 404 });
+    if (!files || files.length === 0) {
+      return NextResponse.json({ message: 'No se han proporcionado archivos.' }, { status: 400 });
     }
+    
+    // Asegurarse de que el directorio 'storage' exista
+    await ensureStorageDirectoryExists();
 
-    return NextResponse.json({ message: 'Documentación subida con éxito.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Obtener la documentación existente
+      const { rows: internmentRows } = await client.query(
+        'SELECT documentation FROM internments WHERE id = $1',
+        [id]
+      );
+
+      if (internmentRows.length === 0) {
+        return NextResponse.json({ message: 'Internación no encontrada.' }, { status: 404 });
+      }
+
+      let existingDocumentation = [];
+      if (internmentRows[0].documentation) {
+          try {
+              // Aseguramos que parseamos el JSON si es un string.
+              existingDocumentation = typeof internmentRows[0].documentation === 'string'
+                  ? JSON.parse(internmentRows[0].documentation)
+                  : internmentRows[0].documentation;
+
+              if (!Array.isArray(existingDocumentation)) {
+                  existingDocumentation = [];
+              }
+          } catch (e) {
+              console.error("Error al parsear la documentación existente:", e);
+              existingDocumentation = [];
+          }
+      }
+
+      const newDocumentation = [...existingDocumentation];
+
+      for (const file of files) {
+        const fileBuffer = await file.arrayBuffer();
+        const originalFilename = file.name;
+        // Crear un nombre de archivo único para evitar colisiones
+        const uniqueFilename = `${Date.now()}-${originalFilename.replace(/\s+/g, '_')}`;
+        const filePath = path.join(process.cwd(), 'storage', uniqueFilename);
+        
+        // Guardar el archivo físicamente
+        await fs.writeFile(filePath, Buffer.from(fileBuffer));
+
+        // Añadir la información del archivo al array de documentación
+        newDocumentation.push({
+          filename: uniqueFilename,
+          originalFilename: originalFilename,
+          uploadDate: new Date().toISOString(),
+          uploader: decodedToken.name, // CORREGIDO: Usar 'name' en lugar de 'username'
+        });
+      }
+
+      // Actualizar la base de datos con el nuevo array de documentación
+      await client.query(
+        'UPDATE internments SET documentation = $1 WHERE id = $2',
+        [JSON.stringify(newDocumentation), id]
+      );
+
+      await client.query('COMMIT');
+
+      return NextResponse.json({ 
+        message: 'Documentación subida con éxito.', 
+        documentation: newDocumentation 
+      });
+
+    } catch (dbError) {
+      await client.query('ROLLBACK');
+      console.error("Error en la transacción de la base de datos:", dbError);
+      return NextResponse.json({ message: 'Error en el servidor al procesar la subida.' }, { status: 500 });
+    } finally {
+      client.release();
+    }
 
   } catch (error) {
     console.error("Error al subir documentación:", error);
+    if (error.message.includes("Token")) {
+      return NextResponse.json({ message: error.message }, { status: 401 });
+    }
     return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
   }
 }

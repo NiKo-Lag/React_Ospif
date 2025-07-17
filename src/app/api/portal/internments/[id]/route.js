@@ -22,7 +22,7 @@ export async function GET(request, { params }) {
 
     // 1. Verificar la sesión del prestador (o del admin, si es necesario en el futuro)
     const cookieStore = cookies();
-    const token = cookieStore.get('provider_token'); // Asumiendo que es para el portal
+    const token = cookieStore.get('token'); // Asumiendo que es para el portal
     if (!token) {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
     }

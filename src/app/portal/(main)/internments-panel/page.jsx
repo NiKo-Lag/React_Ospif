@@ -9,6 +9,8 @@ import Modal from '@/components/ui/Modal';
 import InternmentDetailModal from '@/components/internaciones/InternmentDetailModal';
 import ProrrogaForm from '@/components/internaciones/ProrrogaForm';
 import UploadDocumentationForm from '@/components/internaciones/UploadDocumentationForm';
+import ProrrogaDetailModal from '@/components/internaciones/ProrrogaDetailModal'; // 1. Importar el nuevo modal
+import FinalizeInternmentModal from '@/components/internaciones/FinalizeInternmentModal'; // 1. Importar
 
 // Componente para la insignia de estado (genérico)
 const StatusBadge = ({ status }) => {
@@ -30,7 +32,7 @@ const StatusBadge = ({ status }) => {
 };
 
 // Componente para la fila de detalles que se carga al expandir
-const DetailRow = ({ internmentId, refreshTrigger }) => {
+const DetailRow = ({ internmentId, refreshTrigger, onShowDetail }) => {
     const [details, setDetails] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -38,7 +40,7 @@ const DetailRow = ({ internmentId, refreshTrigger }) => {
         const fetchDetails = async () => {
             setLoading(true);
             try {
-                const response = await fetch(`/api/internment/${internmentId}`, { cache: 'no-store' });
+                const response = await fetch(`/api/portal/internments/${internmentId}`, { cache: 'no-store' });
                 if (!response.ok) throw new Error('No se pudieron cargar los detalles.');
                 const data = await response.json();
                 setDetails(data);
@@ -74,7 +76,13 @@ const DetailRow = ({ internmentId, refreshTrigger }) => {
                                     <td className="px-4 py-3 whitespace-nowrap text-gray-500 w-32">{item.itemType}</td>
                                     <td className="px-4 py-3 whitespace-nowrap w-40"><StatusBadge status={item.status} /></td>
                                     <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium w-20">
-                                        <button className="text-indigo-600 hover:text-indigo-800">Ver</button>
+                                        {/* 3. El botón ahora abre el modal de detalle */}
+                                        <button 
+                                            onClick={() => onShowDetail(item)}
+                                            className="text-indigo-600 hover:text-indigo-800"
+                                        >
+                                            Ver
+                                        </button>
                                     </td>
                                 </tr>
                             ))}
@@ -102,6 +110,8 @@ export default function InternmentsPanelPage() {
     const [detailModal, setDetailModal] = useState({ isOpen: false, request: null });
     const [prorrogaModal, setProrrogaModal] = useState({ isOpen: false, internmentId: null });
     const [uploadModal, setUploadModal] = useState({ isOpen: false, internmentId: null });
+    const [prorrogaDetailModal, setProrrogaDetailModal] = useState({ isOpen: false, proroga: null }); // 2. Añadir estado para el nuevo modal
+    const [finalizeModal, setFinalizeModal] = useState({ isOpen: false, internmentId: null }); // 2. Añadir estado
     const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     const fetchInternments = useCallback(async () => {
@@ -145,6 +155,16 @@ export default function InternmentsPanelPage() {
         setOpenMenuId(prevId => (prevId === internmentId ? null : internmentId));
     };
 
+    // 4. Nueva función para manejar qué modal de detalle mostrar
+    const handleShowDetail = (item) => {
+        if (item.itemType === 'Prórroga') {
+            setProrrogaDetailModal({ isOpen: true, proroga: item });
+        } else {
+            // Aquí iría la lógica para ver el detalle de una autorización si se implementara
+            toast.error('La vista de detalle para este tipo de elemento no está implementada.');
+        }
+    };
+
     const handleOpenDetailModal = (internment) => {
         setDetailModal({ isOpen: true, request: internment });
         setOpenMenuId(null);
@@ -182,6 +202,26 @@ export default function InternmentsPanelPage() {
         handleCloseUploadModal();
         toast.success('Documentación subida con éxito.');
         setRefreshTrigger(prev => prev + 1);
+    };
+
+    const handleCloseProrrogaDetailModal = () => {
+        setProrrogaDetailModal({ isOpen: false, proroga: null });
+    }
+
+    // 4. Funciones para el nuevo modal
+    const handleOpenFinalizeModal = (internmentId) => {
+        setFinalizeModal({ isOpen: true, internmentId: internmentId });
+        setOpenMenuId(null);
+    };
+
+    const handleCloseFinalizeModal = () => {
+        setFinalizeModal({ isOpen: false, internmentId: null });
+    };
+
+    const handleFinalizeSuccess = () => {
+        handleCloseFinalizeModal();
+        toast.success('Internación finalizada correctamente.');
+        fetchInternments(); // Recargar la lista para que pase a "Finalizadas"
     };
 
     if (loading) return <div className="text-center text-gray-500 p-8">Cargando internaciones...</div>;
@@ -238,6 +278,10 @@ export default function InternmentsPanelPage() {
                                                             <button onClick={(e) => { e.stopPropagation(); handleOpenDetailModal(internment); }} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Ver Detalle Completo</button>
                                                             <button onClick={(e) => { e.stopPropagation(); handleOpenProrrogaModal(internment.id); }} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Solicitar Prórroga</button>
                                                             <button onClick={(e) => { e.stopPropagation(); handleOpenUploadModal(internment.id); }} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Cargar Documentación</button>
+                                                            {/* 3. Botón condicional para finalizar */}
+                                                            {internment.status === 'Activa' && (
+                                                                <button onClick={(e) => { e.stopPropagation(); handleOpenFinalizeModal(internment.id); }} className="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-red-50">Finalizar Internación</button>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )}
@@ -246,7 +290,7 @@ export default function InternmentsPanelPage() {
                                     </tr>
                                     {expandedRowId === internment.id && (
                                         <tr className="sublist-row">
-                                            <DetailRow internmentId={internment.id} refreshTrigger={refreshTrigger} />
+                                            <DetailRow internmentId={internment.id} refreshTrigger={refreshTrigger} onShowDetail={handleShowDetail} />
                                         </tr>
                                     )}
                                 </React.Fragment>
@@ -260,24 +304,22 @@ export default function InternmentsPanelPage() {
                 </div>
             </div>
 
+            {/* --- Modales --- */}
             <Modal isOpen={detailModal.isOpen} onClose={handleCloseDetailModal}>
-                <InternmentDetailModal request={detailModal.request} onClose={handleCloseDetailModal} onOpenProrroga={handleOpenProrrogaModal} />
+                <InternmentDetailModal request={detailModal.request} onClose={handleCloseDetailModal} onOpenProrroga={handleOpenProrrogaModal} onAttachPractice={() => {}} />
             </Modal>
-
             <Modal isOpen={prorrogaModal.isOpen} onClose={handleCloseProrrogaModal}>
-                <ProrrogaForm 
-                    internmentId={prorrogaModal.internmentId}
-                    onSuccess={handleProrrogaSuccess}
-                    closeModal={handleCloseProrrogaModal}
-                />
+                <ProrrogaForm internmentId={prorrogaModal.internmentId} onSuccess={handleProrrogaSuccess} closeModal={handleCloseProrrogaModal} />
             </Modal>
-
             <Modal isOpen={uploadModal.isOpen} onClose={handleCloseUploadModal}>
-                <UploadDocumentationForm
-                    internmentId={uploadModal.internmentId}
-                    onSuccess={handleUploadSuccess}
-                    closeModal={handleCloseUploadModal}
-                />
+                <UploadDocumentationForm internmentId={uploadModal.internmentId} onSuccess={handleUploadSuccess} closeModal={handleCloseUploadModal} />
+            </Modal>
+            <Modal isOpen={prorrogaDetailModal.isOpen} onClose={handleCloseProrrogaDetailModal}>
+                <ProrrogaDetailModal proroga={prorrogaDetailModal.proroga} onClose={handleCloseProrrogaDetailModal} />
+            </Modal>
+            {/* 5. Renderizar el nuevo modal */}
+            <Modal isOpen={finalizeModal.isOpen} onClose={handleCloseFinalizeModal}>
+                <FinalizeInternmentModal internmentId={finalizeModal.internmentId} onSuccess={handleFinalizeSuccess} closeModal={handleCloseFinalizeModal} />
             </Modal>
         </>
     );

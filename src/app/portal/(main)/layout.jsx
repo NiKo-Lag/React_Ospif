@@ -13,7 +13,7 @@ async function LogoutButton() {
     
     const logout = async () => {
         'use server';
-        cookies().delete('provider_token');
+        cookies().delete('token');
         redirect('/portal/login');
     };
 
@@ -29,7 +29,7 @@ async function LogoutButton() {
 
 export default async function PortalLayout({ children }) {
     const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
+    const token = cookieStore.get('token');
     let user = null;
 
     try {
