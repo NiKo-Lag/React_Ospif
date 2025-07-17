@@ -1,16 +1,31 @@
-// Helpers para verificar tokens JWT y obtener la sesión del usuario.
-const jwt = require('jsonwebtoken');
-const { cookies } = require('next/headers');
-const SECRET_KEY = 'tu-clave-secreta-muy-segura-y-dificil-de-adivinar';
+// src/lib/auth.js
 
-function getSession() {
-    const token = cookies().get('token')?.value;
-    if (!token) return null;
-    try {
-        return jwt.verify(token, SECRET_KEY);
-    } catch (error) {
-        return null;
-    }
+import { cookies } from 'next/headers';
+import jwt from 'jsonwebtoken';
+
+const SECRET_KEY = process.env.JWT_SECRET_KEY;
+
+/**
+ * Verifica un token JWT.
+ * @param {string} token - El token JWT a verificar.
+ * @returns {object|null} - El payload decodificado si el token es válido, de lo contrario null.
+ */
+export function verifyToken(token) {
+  if (!token) return null;
+  try {
+    return jwt.verify(token, SECRET_KEY);
+  } catch (error) {
+    console.error("Error al verificar el token:", error.message);
+    return null;
+  }
 }
 
-module.exports = { getSession, SECRET_KEY };
+/**
+ * Obtiene la sesión del usuario desde las cookies en Server Components.
+ * @returns {Promise<object|null>} - El payload decodificado de la sesión.
+ */
+export async function getSession() {
+  const cookieStore = cookies();
+  const token = cookieStore.get('token')?.value;
+  return verifyToken(token);
+}

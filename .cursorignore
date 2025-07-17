@@ -1,0 +1,2 @@
+# Explicitly include .env.local (NOT RECOMMENDED FOR PRODUCTION)
+!.env.local
