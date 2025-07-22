@@ -1,3 +1,4 @@
+import Providers from './Providers';
 import "./globals.css"; // <-- ¡ESTA LÍNEA DEBE ESTAR AQUÍ!
 
 export const metadata = {
@@ -8,7 +9,11 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <Providers>
+          {children}
+        </Providers>
+      </body>
     </html>
   );
 }

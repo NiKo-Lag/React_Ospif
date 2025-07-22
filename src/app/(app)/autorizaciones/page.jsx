@@ -13,6 +13,7 @@ import HistoryModal from '@/components/autorizaciones/HistoryModal';
 import InternmentForm from '@/components/internaciones/InternmentForm';
 import InternmentDetailModal from '@/components/internaciones/InternmentDetailModal';
 import toast, { Toaster } from 'react-hot-toast';
+import { useSession } from 'next-auth/react';
 
 const useDebounce = (value, delay) => {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -40,6 +41,7 @@ export default function AutorizacionesPage() {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { data: session } = useSession(); // Get session
   
   const [authFormModalState, setAuthFormModalState] = useState({ 
     isOpen: false, mode: 'new', data: null, internmentId: null, initialBeneficiary: null 
@@ -53,19 +55,36 @@ export default function AutorizacionesPage() {
   const debouncedSearchTerm = useDebounce(useState('')[0], 500);
 
   const fetchData = useCallback(async () => {
+    if (!session) return; // Don't fetch if no session
+
     setLoading(true);
+    
+    // Determine the API endpoint based on user role
+    const endpoint = session.user.role === 'auditor' 
+      ? '/api/auditor/authorizations' 
+      : '/api/autorizaciones';
+
     try {
-      const response = await fetch('/api/dashboard');
-      if (!response.ok) throw new Error('No se pudo obtener la información del dashboard.');
+      const response = await fetch(endpoint);
+      if (!response.ok) throw new Error('No se pudo obtener la información de las autorizaciones.');
       const data = await response.json();
-      setRequests(data);
+      
+      const formattedData = data.map(item => ({
+        ...item,
+        requestType: item.type, 
+        beneficiary: item.beneficiary, // field name is already 'beneficiary' in the response
+        provider: item.provider_name,
+        date: item.date, // field name is already 'date' in the response
+      }));
+
+      setRequests(formattedData);
     } catch (err) {
       setError(err.message);
       toast.error(err.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [session]); // Add session to dependency array
 
   useEffect(() => { fetchData(); }, [fetchData]);
 

@@ -1,0 +1,436 @@
+# REGISTRO DEL PROYECTO - Portal de Gestión OSPIF
+
+Este documento sirve como un registro centralizado del estado, la arquitectura y las decisiones de diseño del proyecto. Se actualizará continuamente a medida que el proyecto evolucione.
+
+---
+
+## 1. Idea General del Proyecto
+
+El proyecto es una aplicación web construida con Next.js que funciona como un portal de gestión para una entidad de salud (posiblemente una obra social o seguro médico). Su funcionalidad principal, hasta ahora, se centra en permitir que los "prestadores" (clínicas, hospitales, etc.) gestionen los procesos de internación de los beneficiarios.
+
+El flujo principal permite a un prestador:
+- Autenticarse en un portal seguro.
+- Denunciar nuevas internaciones.
+- Ver un panel con todas sus internaciones activas y finalizadas.
+- Gestionar una internación existente:
+    - Solicitar prórrogas.
+    - Adjuntar documentación.
+    - Finalizar la internación.
+- Recibir notificaciones sobre eventos relevantes.
+
+El sistema también presupone la existencia de otros roles, como "Auditores" y "Administradores", aunque sus flujos de trabajo aún no están implementados.
+
+---
+
+## 2. Estructura del Proyecto
+
+El proyecto sigue las convenciones del App Router de Next.js. La estructura principal es la siguiente:
+
+- **`/src/app/`**: Contiene todas las rutas de la aplicación y la lógica de la API.
+    - **`/src/app/api/`**: Alberga todos los endpoints del backend, organizados por roles y recursos (ej. `/portal/login`, `/portal/internments`).
+    - **`/src/app/portal/`**: Define las rutas del portal de prestadores, que es el área principal para usuarios autenticados. Utiliza un grupo de rutas `(main)` para aplicar un layout específico.
+    - **`/src/app/login/`**: (Actualmente no existe como página, pero es una ruta implícita).
+
+- **`/src/components/`**: Contiene todos los componentes reutilizables de React, tanto de UI (`/ui/Modal`) como de lógica de negocio (`/internaciones/ProrrogaForm`).
+
+- **`/src/lib/`**: Contiene lógica y helpers compartidos.
+    - `auth.js`: Lógica de autenticación (verificación de tokens JWT).
+    - `db.js`: Configuración de la conexión a la base de datos PostgreSQL.
+
+- **`/src/middleware.js`**: (Recientemente añadido) Intercepta las peticiones para proteger las rutas y gestionar las redirecciones basadas en la autenticación.
+
+- **`/storage/`**: Directorio (creado dinámicamente) donde se almacenan los archivos subidos, como la documentación de las internaciones.
+
+---
+
+## 3. Módulos y Relaciones
+
+### a. Módulo de Autenticación
+
+- **Tecnología:** Basado en tokens JWT.
+- **Flujo Actual:**
+    1. Un "prestador" envía su email y contraseña al endpoint `/api/portal/login/route.js`.
+    2. El servidor verifica las credenciales contra la tabla `prestadores` y, si son válidas, genera un JWT.
+    3. El token se almacena en una cookie `httpOnly` llamada `provider_token`.
+- **Componentes Clave:**
+    - `src/lib/auth.js`: Contiene `getSession` y `verifyToken`, helpers para gestionar la sesión.
+    - `src/middleware.js`: Protege todas las rutas del portal, redirigiendo al login si no hay un token válido.
+- **Estado Actual y Problemas:**
+    - **INCONSISTENTE:** Existe una gran inconsistencia en todo el proyecto. Muchos endpoints buscan una cookie llamada `token` en lugar de `provider_token`, lo que hace que fallen.
+    - **CÓDIGO DUPLICADO:** La lógica de verificación de token está repetida en casi todos los endpoints y layouts, en lugar de estar centralizada.
+    - **FUNCIONALIDADES FALTANTES:** No existen flujos para el registro de usuarios, la recuperación de contraseña o el login de otros roles.
+
+### b. Módulo de Gestión de Internaciones
+
+- **Corazón de la Aplicación:** Es el módulo más desarrollado y complejo.
+- **UI Principal:** `src/app/portal/(main)/internments-panel/page.jsx`. Es un componente de cliente complejo que gestiona el estado de la tabla de internaciones y la visibilidad de numerosos modales.
+- **API de Soporte:** `src/app/api/portal/internments/`
+    - `POST /`: Crea una nueva denuncia de internación, incluyendo la subida de archivos iniciales.
+    - `GET /[id]`: Obtiene los detalles completos de una internación.
+    - `PATCH /[id]/request-extension`: Añade una solicitud de prórroga al historial de la internación.
+    - `PATCH /[id]/upload`: Adjunta nueva documentación a una internación existente.
+    - `PATCH /[id]/finalize`: Cambia el estado de la internación a "Finalizada" y registra los detalles del egreso.
+- **Relación:** El panel de la UI consume intensivamente estos endpoints para proveer la funcionalidad al prestador.
+
+### c. Módulo de Notificaciones
+
+- **UI:** `src/components/NotificationBell.jsx`. Un componente de cliente que se encarga de mostrar un ícono de campana con las notificaciones no leídas.
+- **API de Soporte:** `src/app/api/portal/notifications/`
+    - `GET /`: Obtiene todas las notificaciones para el usuario autenticado.
+    - `PATCH /[id]`: Marca una notificación específica como leída.
+- **Estado Actual:**
+    - **NO FUNCIONAL:** Todo el módulo de notificaciones está actualmente roto debido a la inconsistencia en el nombre de la cookie de autenticación que busca en sus endpoints.
+
+### d. Módulo de Auditoría
+
+- **Rol Implícito:** Aunque no tiene una interfaz de usuario visible, el rol de "auditor" es fundamental para el flujo de negocio.
+- **Flujo de Trabajo:**
+    1. Un "prestador" realiza una acción que requiere aprobación (ej. solicitar una prórroga).
+    2. Esta acción crea una "autorización" con el estado `Pendiente de Auditoría`.
+    3. Un usuario con el rol de "auditor" debe iniciar sesión (mecanismo aún no descubierto).
+    4. El auditor utiliza el endpoint `PATCH /api/auditor/authorizations/[id]` para aprobar, rechazar o devolver la solicitud.
+- **Endpoint Clave:** `src/app/api/auditor/authorizations/[id]/route.js`
+    - **Verificación de Rol:** Es el único endpoint que verifica explícitamente que el usuario tenga `role: 'auditor'`.
+    - **Lógica Detallada:** Actualiza el estado de la autorización, guarda el ID del auditor, la fecha y un comentario.
+- **Estado Actual y Problemas:**
+    - **FUNCIONALIDAD INCOMPLETA:** No existe un endpoint de login para auditores ni una interfaz de usuario donde puedan ver y gestionar las autorizaciones pendientes. El flujo de trabajo está definido en el backend pero no es utilizable por un usuario final.
+    - **INCONSISTENCIA DE AUTENTICACIÓN:** Sufre de los mismos problemas de manejo de tokens que el resto de la aplicación.
+
+### e. Módulo de Administración
+
+- **Rol Placeholder:** La existencia del directorio `/api/admin` sugiere un rol de administrador.
+- **Funcionalidades Previstas:** La estructura de subdirectorios (`/users`, `/kpis`) indica que este rol debería encargarse de la gestión de usuarios y la visualización de indicadores.
+- **Estado Actual:**
+    - **NO IMPLEMENTADO:** Los directorios que contendrían la lógica de la API para este rol están completamente vacíos. Es un rol puramente conceptual en esta etapa del proyecto.
+
+### f. Integración con API Externa (SAAS)
+
+- **Descubrimiento Arquitectónico:** El proyecto no gestiona su propio padrón de beneficiarios. Actúa como un intermediario (Backend-For-Frontend) que consulta una API de terceros para esta información.
+- **Endpoint Clave:** `GET /api/beneficiary/[cuil]`
+    - Este endpoint es consumido por el asistente de denuncia de internación para validar y obtener los datos del paciente.
+- **Flujo de Interacción:**
+    1. El backend de la aplicación recibe la petición del frontend.
+    2. Se autentica contra la API de SAAS (`https://fosforo.client-api.saas.com.ar/api`) usando credenciales fijas para obtener un token temporal.
+    3. Utiliza ese token para consultar el padrón de SAAS con el CUIL proporcionado.
+    4. Normaliza los datos recibidos (ej. corrige nombres faltantes) y los devuelve al frontend.
+- **Estado Actual y Problemas:**
+    - **VULNERABILIDAD DE SEGURIDAD:** Las credenciales para la API de SAAS están hardcodeadas en el código fuente en lugar de usar variables de entorno. Esto es un riesgo de seguridad crítico.
+    - **INCONSISTENCIA DE AUTENTICACIÓN:** El endpoint que envuelve esta lógica sufre del mismo problema de verificación de tokens que el resto de la aplicación.
+
+### g. Dependencias y Configuración del Proyecto (package.json)
+
+- **Descubrimiento Crítico (Contradicción):** El archivo `package.json` incluye la dependencia `@auth0/nextjs-auth0`. Esto contradice frontalmente el sistema de autenticación manual (JWT + bcrypt) que está implementado en todo el proyecto.
+- **Hipótesis Principal:** El proyecto probablemente comenzó o intentó una migración hacia Auth0, pero esta fue abandonada. El sistema de autenticación manual existente es el resultado de esa decisión, pero quedó en un estado inconsistente y a medio terminar. El directorio `/src/app/api/auth/[...auth0]/` (actualmente vacío) es un remanente de este intento.
+- **Múltiples Bases de Datos:** Se declaran dependencias tanto para `pg` (PostgreSQL) como para `better-sqlite3` (SQLite). Toda la lógica de negocio visible utiliza PostgreSQL. SQLite podría haber sido usado en una fase temprana o para desarrollo local.
+- **Stack Tecnológico:**
+    - **Framework:** Next.js
+    - **UI:** React, TailwindCSS, Framer Motion, Heroicons
+    - **Backend:** Node.js
+    - **Bases de Datos:** PostgreSQL, (posiblemente SQLite)
+
+### h. Scripts de Utilidad
+
+- **`hashPassword.js`:**
+    - **Propósito:** Un script de línea de comandos para generar hashes de contraseñas usando `bcrypt`.
+    - **Flujo de Trabajo Implícito:** Confirma que la creación de usuarios y la asignación de contraseñas se realizan de forma manual, directamente en la base de datos. El script facilita la generación del hash necesario para las consultas SQL.
+    - **Implicación:** Refuerza la conclusión de que las funcionalidades de registro de usuarios y gestión de perfiles son inexistentes en la aplicación.
+
+---
+## 4. Estado General y Próximos Pasos (Inicial)
+
+El proyecto tiene una base de lógica de negocio muy sólida y bien implementada, principalmente para el rol de "prestador". Su arquitectura es más compleja de lo que parecía inicialmente, funcionando como un orquestador entre su propia base de datos (PostgreSQL) y un servicio externo (SAAS) para el padrón de afiliados.
+
+Sin embargo, está severamente afectado por un sistema de autenticación fragmentado, inconsistente y a medio hacer. Los roles de "auditor" y "admin" están en fases muy tempranas de desarrollo y no son funcionales.
+
+**El primer gran objetivo, antes de añadir cualquier nueva funcionalidad, será refactorizar y unificar todo el sistema de autenticación.** Esto implicará:
+1. Estandarizar el uso de `getSession` en todos los endpoints y layouts para obtener la sesión del usuario.
+2. Eliminar toda la lógica de verificación de tokens duplicada.
+3. Asegurar que todos los endpoints utilicen el nombre de cookie correcto.
+4. Corregir los módulos que actualmente no funcionan (como Notificaciones) como resultado de este refactor.
+
+---
+## 5. Plan de Acción y Decisiones Arquitectónicas
+
+### Fase 1: Limpieza y Actualización (Completada)
+
+- **Decisión:** Antes de implementar cualquier funcionalidad nueva o corregir los problemas existentes, se decidió actualizar la base tecnológica del proyecto y eliminar el código muerto y las dependencias no utilizadas.
+- **Acciones Realizadas:**
+    1.  Se actualizaron las dependencias principales (`next`, `react`, `react-dom`) a sus últimas versiones estables.
+    2.  Se desinstaló el paquete `@auth0/nextjs-auth0`.
+    3.  Se eliminó el directorio de API remanente `src/app/api/auth`.
+- **Resultado:** El proyecto ahora se ejecuta sobre una versión moderna de Next.js y está libre de los restos de la integración abandonada con Auth0.
+
+### Fase 2: Implementación de NextAuth (Próximo Paso)
+
+- **Decisión Arquitectónica:** Se ha decidido utilizar **NextAuth.js** (ahora parte de Auth.js) como la librería principal para gestionar toda la autenticación y autorización.
+- **Justificación:**
+    - Es el estándar de facto para la autenticación en aplicaciones Next.js.
+    - Centraliza toda la lógica de autenticación (logins, sesiones, tokens, etc.) en un único lugar, eliminando el código duplicado y las inconsistencias.
+    - Es altamente extensible y nos permitirá implementar fácilmente diferentes "providers" de credenciales para los distintos roles (Prestadores, Auditores, etc.).
+    - Proporciona ganchos y helpers del lado del cliente y del servidor (`useSession`, `getSession`) que simplificarán enormemente el código en los componentes y las API routes.
+- **Plan de Implementación:**
+    1. Instalar NextAuth.
+    2. Crear el endpoint "catch-all" `src/app/api/auth/[...nextauth]/route.js`.
+    3. Configurar el "CredentialsProvider" para manejar el login de los "Prestadores" (validando contra la base de datos con `bcrypt`).
+    4. Refactorizar todos los endpoints de la API y los componentes de la UI para utilizar los helpers de NextAuth (`getSession`, `useSession`) en lugar de la lógica manual de verificación de tokens.
+    5. Asegurar que el `middleware` utilice la lógica de NextAuth para proteger las rutas.
+    6. Eliminar el código de autenticación manual obsoleto (`src/lib/auth.js`).
+
+### Fase 3: Desarrollo de Nuevas Funcionalidades (Próximo Paso)
+
+- **Decisión:** Habiendo establecido una base de código estable y moderna, el siguiente paso es abordar las funcionalidades incompletas o inexistentes.
+- **Plan Propuesto:**
+    1.  **Implementar el login para el rol de "Auditor"**: Añadir un segundo `CredentialsProvider` o una lógica condicional en el existente para manejar el login de auditores.
+    2.  **Desarrollar la Interfaz de Usuario del Auditor**: Crear las páginas y componentes necesarios para que un auditor pueda ver su panel de autorizaciones pendientes y actuar sobre ellas.
+    3.  **Implementar el Flujo de Registro de Usuarios (Prestadores)**: Crear la página de registro y el endpoint de API correspondiente.
+    4.  **Implementar la Recuperación de Contraseña.**
+    5.  **Desarrollar las funcionalidades del rol de "Admin"**.
+
+### Fase 4: Unificación de la Página de Login (Completada)
+
+- **Decisión Arquitectónica:** Se decidió unificar el punto de entrada de la aplicación en una única página de login genérica para todos los roles, en lugar de tener páginas separadas (ej. `/portal/login`, `/auditor/login`).
+- **Justificación:** Mejora la experiencia de usuario, simplifica el mantenimiento y refuerza el concepto de una única aplicación con diferentes roles.
+- **Acciones Realizadas:**
+    1.  Se creó una nueva página de login en `src/app/login/page.jsx`, conservando el diseño visual preferido.
+    2.  Se actualizó la configuración de NextAuth (`pages: { signIn: '/login' }`) para que todas las redirecciones de autenticación apunten a esta nueva página.
+    3.  Se refactorizó la lógica de `authorize` en el `CredentialsProvider` para que sea capaz de buscar usuarios en diferentes tablas (actualmente busca en `prestadores` y está preparado para buscar en `users`).
+    4.  Se eliminó la antigua página de login (`/src/app/portal/login`).
+- **Resultado:** La aplicación ahora tiene un único punto de entrada de autenticación, más limpio, escalable y fácil de mantener.
+
+### Fase 5: Refactorización de Componentes Cliente/Servidor (Completada)
+
+- **Problema:** Se detectó un error `Event handlers cannot be passed to Client Component props` al iniciar sesión.
+- **Causa Raíz:** Los layouts, que son Componentes de Servidor, definían localmente el componente `LogoutButton`. Aunque se intentaba marcar como `'use client'`, el hecho de pasar una función (`onClick`) como prop desde un Componente de Servidor a uno de Cliente está prohibido por la arquitectura de React Server Components.
+- **Decisión Arquitectónica:** Separar limpiamente los componentes de cliente de los de servidor.
+- **Acciones Realizadas:**
+    1.  Se creó un nuevo componente reutilizable y explícitamente de cliente en `src/components/ui/LogoutButton.jsx`.
+    2.  Se eliminó la definición local del botón en los layouts de Gestión Interna (`/app/(app)/layout.js`) y de Prestadores (`/app/portal/(main)/layout.jsx`).
+    3.  Ambos layouts ahora importan y utilizan el nuevo componente `LogoutButton`.
+- **Resultado:** Se solucionó el error de renderizado. El código ahora sigue las mejores prácticas para la interoperabilidad entre Componentes de Servidor y de Cliente en Next.js, mejorando la mantenibilidad y claridad de la arquitectura.
+
+### Fase 6: Corrección de Módulos Faltantes (Completada)
+
+- **Problema:** Se detectó un error de compilación `Module not found: Can't resolve '@/lib/date-utils'` al acceder a módulos del portal de prestadores.
+- **Causa Raíz:** Un componente (`InternmentDetailModal`) dependía de un archivo de utilidad (`date-utils.js`) que no existía en el proyecto.
+- **Decisión Arquitectónica:** Crear el archivo de utilidad faltante e implementar la funcionalidad requerida (`calculateBusinessDays`) de una manera robusta y auto-actualizable.
+- **Acciones Realizadas:**
+    1.  Se creó el archivo `src/lib/date-utils.js`.
+    2.  Se implementó una función que consume la API externa `api.argentinadatos.com` para obtener una lista actualizada de los feriados de Argentina.
+    3.  Se implementó la función `calculateBusinessDays` que calcula los días hábiles entre dos fechas, excluyendo fines de semana y los feriados obtenidos de la API.
+    4.  Se añadió un sistema de caché simple para evitar llamadas redundantes a la API de feriados.
+- **Resultado:** Se solucionó el error de compilación. La aplicación ahora cuenta con una utilidad de cálculo de fechas precisa y que no requiere mantenimiento manual de feriados.
+
+### Fase 7: Corrección de Endpoint Olvidado (Completada)
+
+- **Problema:** Se detectó un error `Error: No se pudieron cargar las internaciones` al acceder al panel de internaciones del prestador.
+- **Causa Raíz:** El endpoint de API que alimenta este panel (`/api/portal/internments-panel`) no fue actualizado durante la refactorización masiva a NextAuth y todavía utilizaba la lógica de autenticación manual obsoleta, lo que causaba un fallo de autorización.
+- **Acciones Realizadas:**
+    1.  Se localizó el endpoint en `src/app/api/portal/internments-panel/route.js`.
+    2.  Se refactorizó el endpoint para que utilice `getServerSession` de NextAuth, eliminando la lógica manual de verificación de tokens.
+- **Resultado:** Se solucionó el error de carga de datos. Todos los endpoints conocidos de la aplicación ahora utilizan el sistema de autenticación centralizado de NextAuth, mejorando la consistencia y seguridad.
+
+### Fase 8: Corrección del Módulo "Mis Autorizaciones" (Completada)
+
+- **Problema:** Se detectó un error `Error: No autorizado` al acceder a la página `/portal/my-authorizations`.
+- **Causa Raíz:** Al igual que en casos anteriores, los tres endpoints de API que sustentan este módulo (`GET /`, `PATCH /[id]/confirm`, `PATCH /[id]/reject`) no habían sido actualizados a NextAuth.
+- **Acciones Realizadas:**
+    1.  Se localizaron los tres endpoints afectados dentro de `src/app/api/portal/my-authorizations/`.
+    2.  Se refactorizaron los tres para que utilicen `getServerSession` de NextAuth para una autenticación y autorización seguras y basadas en roles.
+- **Resultado:** Se solucionó el error. Toda la funcionalidad del módulo "Mis Autorizaciones" (ver, confirmar y rechazar) es ahora completamente funcional y está integrada con el sistema de autenticación central.
+
+### Fase 9: Implementación y Evolución de "Solicitud de Presupuestos" (Completada)
+
+- **Requerimiento Inicial:** Añadir la capacidad para que los prestadores soliciten presupuestos para una internación existente.
+- **Proceso de Desarrollo Iterativo:** Esta funcionalidad pasó por varias fases de refinamiento basadas en la retroalimentación sobre la experiencia de usuario (UX) y la interfaz (UI).
+    1.  **Versión 1: Formulario Simple.** Se implementó un formulario básico en un modal. **Problema:** Un gran número de conceptos desbordaba el modal, ocultando los botones de acción.
+    2.  **Versión 2: Wizard Vertical.** Para solucionar el desbordamiento, se refactorizó el formulario a un wizard de 4 pasos. **Problema:** Aunque funcional, el diseño seguía siendo muy vertical y no aprovechaba el espacio horizontal, resultando en una UX poco óptima.
+    3.  **Versión 3 (Final): Wizard Horizontal de Dos Paneles.** Se tomó la decisión de rediseñar completamente la experiencia a un formato más profesional:
+        -   **UI/UX:** Se implementó un diseño de dos paneles dentro de un modal más ancho (`max-w-6xl`). Un panel izquierdo fijo muestra los pasos del wizard, y un panel derecho muestra el contenido del paso activo. El wizard ahora ocupa el 100% del espacio del modal para un look integrado.
+        -   **Funcionalidad del Wizard:** Se refinaron los pasos para incluir cálculo de total en tiempo real, campos de texto condicionales para inclusiones/exclusiones, y un resumen final.
+        -   **Carga de Archivos:** Se añadió la capacidad de adjuntar múltiples archivos directamente en el último paso del wizard, integrando la subida de documentación en el mismo flujo.
+- **Decisión Arquitectónica Clave:** Se priorizó la experiencia de usuario sobre la simplicidad de la implementación inicial. Se decidió que un wizard de dos paneles, aunque más complejo de desarrollar, ofrecía una solución mucho más escalable, profesional e intuitiva. El almacenamiento de eventos y adjuntos se consolidó en el campo `details` (JSONB) de la internación.
+- **Acciones Técnicas Realizadas:**
+    1.  **Frontend (`BudgetRequestForm.jsx`):** Refactorización completa a un componente con estado que gestiona el paso activo de un wizard de dos paneles, la lógica de navegación, el cálculo de totales y el estado de los archivos a subir.
+    2.  **Backend (`request-budget/route.js`):** Modificación del endpoint para que acepte `multipart/form-data`. Ahora procesa una parte JSON con los datos del formulario y una parte con los archivos, guardando ambos de forma atómica en la base de datos.
+- **Refinamiento de Coherencia (Post-implementación):**
+    - **Estandarización de Nombres:** Se actualizó el backend para que los archivos subidos sigan el formato estándar de la aplicación: `[ID Internación]_[Nombre Beneficiario]_[CUIT Prestador]_[Nº Archivo]`.
+    - **Unificación de Documentación:** Se modificó la lógica para que los archivos del presupuesto no se guarden en un array aislado, sino que se añadan al array principal `documentation` de la internación. Para identificarlos, se les añadió una propiedad `origin: 'budget_request'`.
+    - **Visibilidad en UI:** Se ajustó el modal de detalle de internación para que muestre una etiqueta "Presupuesto" en los documentos que tengan dicha propiedad de origen, manteniendo la trazabilidad.
+- **Resultado:** La funcionalidad de solicitud de presupuestos es ahora una de las más robustas de la aplicación. Ofrece un flujo de trabajo claro, profesional y eficiente, y su gestión de archivos está perfectamente integrada y es coherente con el resto del sistema.
+
+### Fase 10: Mejora de Usabilidad en el Modal de Detalles (Completada)
+
+- **Requerimiento:** Hacer que el modal de detalle de la internación sea más interactivo, permitiendo a los usuarios ver los detalles de las prácticas y prórrogas asociadas sin salir de la vista principal.
+- **Decisión Arquitectónica:** En lugar de navegar a otras páginas, se decidió utilizar modales anidados (un modal que abre otro modal) para mantener al usuario en el contexto de la internación que está revisando. Esto se logró reutilizando componentes de detalle y formularios existentes.
+- **Acciones Realizadas:**
+    1.  **Integración del Modal de Prórrogas:**
+        -   Se añadió un estado (`selectedProrroga`) al componente `InternmentDetailModal`.
+        -   Cada ítem en la lista del "Historial de Prórrogas" se convirtió en un botón.
+        -   Al hacer clic, se abre un nuevo `Modal` que contiene el componente `ProrrogaDetailModal`, pasándole los datos de la prórroga seleccionada.
+    2.  **Integración del Modal de Prácticas:**
+        -   Se añadió un estado (`selectedPractice`) al mismo componente.
+        -   Cada ítem en la lista de "Prácticas Asociadas" se convirtió en un botón.
+        -   Al hacer clic, se reutiliza el componente `AuthorizationForm` en modo de solo lectura (`isReadOnly={true}`), mostrándolo dentro de un nuevo `Modal` para desplegar los detalles de la práctica.
+- **Resultado:** El modal de detalles de la internación pasó de ser una vista estática a un mini-dashboard interactivo. Los usuarios ahora pueden profundizar en la información relacionada (prórrogas y prácticas) de manera rápida e intuitiva, mejorando significativamente la eficiencia y la experiencia de usuario.
+
+### Fase 11: Implementación del Ciclo de Vida y Estados de Internación (Completada)
+
+- **Requerimiento:** Definir e implementar un ciclo de vida formal para las internaciones, con estados claros y transiciones automáticas y manuales. Esto es crucial para la lógica de negocio, la auditoría y para guiar al usuario en las acciones permitidas.
+- **Decisión Arquitectónica:** Se optó por una solución integral que abarca la base de datos, el backend y el frontend para garantizar la coherencia y robustez del sistema de estados.
+- **Estados Definidos:**
+    -   `INICIADA`: Estado inicial de una internación recién denunciada. Tiene un tiempo de vida limitado.
+    -   `ACTIVA`: La internación ha sido confirmada con una primera solicitud de prórroga y está en curso.
+    -   `OBSERVADA`: Requiere la atención del prestador debido a una observación del equipo de auditoría.
+    -   `INACTIVA`: La internación ha superado las 48 horas hábiles desde su inicio sin acciones por parte del prestador. Requiere intervención administrativa para ser reactivada o finalizada.
+    -   `FINALIZADA`: La internación ha concluido. Es un estado terminal de solo lectura.
+- **Acciones Técnicas Realizadas:**
+    1.  **Base de Datos (Refuerzo de Integridad):**
+        -   Se creó un tipo `ENUM` en PostgreSQL (`internment_status`) con los estados definidos para asegurar que solo valores válidos puedan ser almacenados en la columna `status` de la tabla `internments`.
+        -   Se ejecutó un script de migración para alterar la tabla existente, convirtiendo los valores de texto antiguos (ej. 'Activa') al nuevo tipo `ENUM` y manejando la actualización del valor por defecto de la columna.
+    2.  **Backend (Lógica de Transición Automática):**
+        -   Se creó un nuevo endpoint de cron job en `src/app/api/cron/inactivate-internments/route.js`.
+        -   Este cron se ejecuta periódicamente, busca todas las internaciones en estado `INICIADA` y, utilizando una nueva función de utilidad, calcula las horas hábiles transcurridas desde su creación.
+        -   Si han pasado más de 48 horas hábiles, el estado de la internación cambia automáticamente a `INACTIVA`.
+    3.  **Refactorización y Centralización de Código:**
+        -   Se detectó que la lógica para calcular horas hábiles estaba duplicada entre el nuevo cron y uno existente.
+        -   Se creó una nueva función centralizada, `calculateBusinessHoursSince`, en el módulo de utilidades `src/lib/date-utils.js`.
+        -   Ambos cron jobs (`inactivate-internments` y `finalize-internments`) fueron refactorizados para usar esta única función, eliminando la redundancia y mejorando la mantenibilidad.
+    4.  **Backend (Refuerzo de Seguridad):**
+        -   Se modificaron los endpoints de acciones clave (`request-extension` y `request-budget`) para que, antes de procesar cualquier solicitud, verifiquen el estado actual de la internación en la base de datos.
+        -   Si la internación no está en un estado válido para la acción solicitada (ej. intentar solicitar una prórroga para una internación `FINALIZADA`), el endpoint devuelve un error 403 (Prohibido), impidiendo la acción.
+    5.  **Frontend (Mejora de la Experiencia de Usuario):**
+        -   Se actualizó el modal de detalle de la internación (`InternmentDetailModal.jsx`).
+        -   Se añadió una insignia de estado visualmente clara (`StatusBadge`) en la cabecera del modal.
+        -   Los botones de acción principales ("Solicitar Práctica", "Solicitar Prórroga", "Solicitar Presupuesto") ahora se deshabilitan visualmente si el estado de la internación no permite dichas acciones, proveyendo feedback inmediato al usuario.
+- **Resultado:** La aplicación ahora cuenta con un sistema de estados robusto y coherente. Las transiciones automáticas aseguran el cumplimiento de las reglas de negocio, la seguridad en el backend previene acciones no autorizadas, y la interfaz de usuario informa claramente al prestador sobre el estado actual y las acciones disponibles, mejorando significativamente la usabilidad y la fiabilidad del sistema.
+
+### Fase 12: Auditoría y Endurecimiento del Ciclo de Vida (Completada)
+
+- **Contexto:** Tras la implementación de los nuevos estados de internación, se detectaron errores en cascada en otras partes de la aplicación que no habían sido actualizadas, revelando la necesidad de una auditoría completa.
+- **Problema Principal:** Varios endpoints y componentes de la interfaz de usuario seguían utilizando los valores de estado antiguos (ej. `'Activa'`), lo que provocaba fallos de inserción en la base de datos (que ahora usaba un `ENUM` estricto) y errores de visualización en el frontend.
+- **Acciones Correctivas Realizadas:**
+    1.  **Auditoría de Endpoints:** Se realizó una revisión exhaustiva de todos los endpoints de la API bajo `src/app/api/portal/internments/`.
+    2.  **Corrección del Endpoint de Creación:** Se modificó `internments/route.js` para que las nuevas internaciones se creen con el estado `INICIADA` en lugar de `'Activa'`.
+    3.  **Corrección del Endpoint de Finalización:** Se modificó `internments/[id]/finalize/route.js` para que actualice el estado a `FINALIZADA` (en mayúsculas) y se añadió una capa de seguridad para permitir la finalización solo si el estado actual es `ACTIVA`.
+    4.  **Corrección del Panel de Internaciones (Frontend):** Se actualizó el componente en `internments-panel/page.jsx` para solucionar el problema de que no se mostraban las internaciones.
+        -   **Lógica de Filtrado:** Se ajustó el filtro de las pestañas. La pestaña "Activas" ahora muestra todas las internaciones cuyo estado *no sea* `FINALIZADA`.
+        -   **Insignias de Estado (`StatusBadge`):** Se añadieron los nuevos estados al componente para que se rendericen con los colores e iconos correctos, proporcionando una representación visual precisa del estado real de la internación.
+- **Resultado:** La auditoría y las correcciones subsecuentes han sincronizado toda la aplicación con el nuevo sistema de estados. Se han eliminado las inconsistencias entre el frontend, el backend y la base de datos, resultando en una funcionalidad estable y predecible en todo el flujo de gestión de internaciones.
+
+### Fase 13: Panel de Acciones Pendientes en el Dashboard (Completada)
+
+- **Requerimiento:** Crear una sección proactiva en el dashboard principal (`/portal/dashboard`) que alerte a los prestadores sobre las internaciones recién creadas que requieren una acción inminente (solicitar una prórroga) antes de que venza el plazo de 48 horas hábiles.
+- **Decisión Arquitectónica:** Se decidió implementar una solución completa que abarcara el backend y el frontend. El backend se encargaría de calcular la fecha límite exacta para cada internación pendiente, y el frontend se encargaría de mostrar esta información de manera clara y con una cuenta regresiva en tiempo real.
+- **Acciones Técnicas Realizadas:**
+    1.  **Backend (Cálculo de Fechas Límite):**
+        -   Se extendió el módulo de utilidades `src/lib/date-utils.js` con una nueva función, `calculateBusinessDeadline`, capaz de calcular la fecha y hora exactas de vencimiento sumando un número determinado de horas hábiles a una fecha de inicio.
+        -   Se refactorizó el endpoint del dashboard (`/api/dashboard/route.js`) para que, al obtener la lista de internaciones, identifique aquellas con estado `INICIADA` y utilice la nueva utilidad para calcular su `deadline` de 48 horas, enriqueciendo el objeto de datos que se envía al frontend.
+    2.  **Frontend (Implementación de la UI):**
+        -   Se modificó la página del dashboard (`/portal/(main)/dashboard/page.jsx`) para que sea un componente de cliente que obtiene sus datos del endpoint `/api/dashboard`.
+        -   Se crearon dos nuevos sub-componentes:
+            -   `PendingActionsPanel`: Un contenedor que filtra los datos recibidos para encontrar las internaciones pendientes y las renderiza en una sección titulada "Internaciones que requieren atención".
+            -   `CountdownTimer`: Un cronómetro que recibe la fecha límite y muestra una cuenta regresiva en tiempo real (días, horas, minutos, segundos). Si el plazo vence, muestra un mensaje claro de "Plazo Vencido".
+    3.  **Refinamiento y Corrección de Errores:**
+        -   Se corrigió la ubicación del panel, moviéndolo a la parte inferior del dashboard según la solicitud.
+        -   Se ajustó el contenido de las tarjetas para incluir más información del beneficiario (CUIL, fecha de ingreso).
+        -   Se depuraron y corrigieron varios errores en el proceso, incluyendo una consulta SQL incorrecta en el endpoint del dashboard que inicialmente devolvía un array vacío.
+- **Resultado:** El dashboard principal ahora es más inteligente y útil. Proporciona a los prestadores una visión clara e inmediata de las tareas urgentes, con una cuenta regresiva que crea un sentido de urgencia y ayuda a prevenir que las internaciones se inactiven por descuido. La funcionalidad está encapsulada, es reutilizable y mejora significativamente la experiencia de usuario.
+
+### Fase 14: Implementación de Notificaciones de Auditoría (Completada)
+
+- **Requerimiento:** Mejorar la comunicación entre auditores y prestadores, notificando automáticamente a estos últimos cuando una de sus solicitudes (práctica, prórroga, presupuesto, etc.) sea auditada.
+- **Decisión Arquitectónica:** La forma más eficiente y robusta de implementar esto fue integrar la creación de notificaciones directamente en el endpoint de la API que ya utilizan los auditores para procesar las solicitudes. Se decidió usar una transacción de base de datos para garantizar la atomicidad de la operación (la auditoría y la notificación ocurren juntas o ninguna ocurre).
+- **Acciones Técnicas Realizadas:**
+    1.  **Modificación del Endpoint del Auditor:**
+        -   Se refactorizó el endpoint `PATCH /api/auditor/authorizations/[id]` para utilizar un cliente de base de datos y envolver toda la lógica en una transacción (`BEGIN`, `COMMIT`, `ROLLBACK`).
+        -   Después de que la autorización se actualiza con éxito en la base de datos, se añadió una nueva sentencia `INSERT` que crea una fila en la tabla `notifications`.
+        -   El mensaje de la notificación es dinámico y claro, informando al prestador qué solicitud fue afectada y qué acción se tomó (ej: "El auditor ha realizado una acción (Devolver) en la solicitud: 'Prórroga por 5 días'").
+    2.  **Mejora del Esquema de la Base de Datos:**
+        -   Se identificó la oportunidad de hacer las notificaciones más potentes. Se creó un script de migración SQL para añadir una nueva columna `related_authorization_id` a la tabla `notifications`.
+        -   Esta columna tiene una clave foránea (`FOREIGN KEY`) que apunta directamente a la autorización correspondiente.
+        -   **Beneficio a Futuro:** Esto permitirá que, al hacer clic en una notificación, la interfaz pueda llevar al usuario directamente a la página de detalles de la solicitud que la originó, mejorando drásticamente el flujo de trabajo.
+- **Resultado:** El sistema ahora cierra el ciclo de comunicación de la auditoría. Los prestadores son notificados en tiempo real sobre las decisiones que afectan sus solicitudes, lo que agiliza los tiempos de respuesta y mejora la eficiencia general del proceso de autorización. La base de datos está preparada para futuras mejoras en la experiencia de usuario del panel de notificaciones.
+
+### Fase 15: Chat de Observaciones en Tiempo Real (Completada)
+
+- **Requerimiento:** Crear un sistema de comunicación directa y contextual dentro del detalle de cada internación, permitiendo a los prestadores y al personal de la OS intercambiar mensajes, hacer preguntas y dejar constancia de las conversaciones.
+- **Decisión Arquitectónica:** Se optó por un enfoque de "Single Page App" dentro del modal. Se creó un nuevo componente de chat que maneja su propio estado y lógica de comunicación con una API dedicada, sin necesidad de recargar el modal completo. Los mensajes se almacenan en un array dentro del campo `details` (JSONB) de la internación.
+- **Acciones Técnicas Realizadas:**
+    1.  **Backend (API de Observaciones):**
+        -   Se creó un nuevo endpoint dedicado en `POST /api/portal/internments/[id]/add-observation`.
+        -   Este endpoint recibe un mensaje de texto y opcionalmente un ID de mensaje al que se responde (`replyTo`).
+        -   Dentro de una transacción, obtiene el array de observaciones existente, añade la nueva observación (incluyendo datos del autor desde la sesión, timestamp, etc.), y actualiza el campo `details` de la internación.
+        -   Devuelve el array completo y actualizado de observaciones para que el frontend pueda refrescar su estado.
+    2.  **Frontend (Componente de Chat):**
+        -   Se creó un nuevo componente `ObservationsChat` dentro de `InternmentDetailModal.jsx`.
+        -   **Renderizado:** Muestra cada observación como una "burbuja de chat", alineada a la derecha para los mensajes propios y a la izquierda para los de otros usuarios. Muestra el avatar (o iniciales), nombre del autor, hora del mensaje y contenido.
+        -   **Envío de Mensajes:** Incluye un campo de texto y un botón de envío que llaman al nuevo endpoint de la API. Gestiona un estado de carga para dar feedback al usuario.
+        -   **Funcionalidad de Respuesta:** Permite hacer clic en un botón "Responder" en los mensajes de otros, lo que adjunta una vista previa del mensaje original a la nueva respuesta, tanto visualmente como en los datos enviados a la API.
+    3.  **Integración y Maquetación:**
+        -   El componente `ObservationsChat` se integró en el modal de detalle de la internación.
+        -   Tras varios ajustes, se ubicó en la columna lateral izquierda, debajo de la sección de "Documentación Adjunta", para una mejor organización del espacio.
+- **Resultado:** La aplicación ahora cuenta con una potente herramienta de comunicación contextual. Se eliminó la necesidad de comunicación informal por fuera del sistema (emails, llamados). Todas las conversaciones importantes quedan registradas y asociadas directamente a la internación correspondiente, mejorando la trazabilidad, la transparencia y la eficiencia de la comunicación entre prestadores y el equipo interno.
+
+---
+## 6. Esquema de la Base de Datos (PostgreSQL)
+
+Esta sección documenta la estructura de las tablas principales de la base de datos para referencia.
+
+### Tabla: `users`
+- `id`: SERIAL PRIMARY KEY
+- `name`: VARCHAR
+- `role`: VARCHAR (ej. 'admin', 'auditor')
+- `email`: VARCHAR UNIQUE
+- `password`: VARCHAR (hash)
+- `status`: VARCHAR
+
+### Tabla: `prestadores`
+- `id`: SERIAL PRIMARY KEY
+- `razonsocial`: VARCHAR
+- `cuit`: VARCHAR
+- `email`: VARCHAR UNIQUE
+- `password`: VARCHAR (hash)
+- `estado`: VARCHAR
+- `nombre_fantasia`: VARCHAR
+
+### Tabla: `internments`
+- `id`: BIGINT PRIMARY KEY
+- `beneficiary_name`: VARCHAR
+- `beneficiary_cuil`: VARCHAR
+- `admission_datetime`: TIMESTAMP
+- `carácter`: VARCHAR
+- `admission_reason`: TEXT
+- `attending_doctor`: VARCHAR
+- `notifying_provider_id`: INTEGER (FK a `prestadores.id`)
+- `status`: VARCHAR
+- `source`: VARCHAR
+- `details`: JSONB
+- `created_at`: TIMESTAMP
+- `egreso_date`: TIMESTAMP
+- `admission_type`: VARCHAR
+- `admission_sector`: VARCHAR
+- `room_number`: VARCHAR
+- `presumptive_diagnosis`: VARCHAR
+- `clinical_summary`: TEXT
+- `documentation`: JSONB
+
+### Tabla: `authorizations`
+- `id`: SERIAL PRIMARY KEY
+- `created_at`: TIMESTAMP
+- `type`: VARCHAR
+- `title`: VARCHAR
+- `beneficiary_name`: VARCHAR
+- `status`: VARCHAR
+- `is_important`: BOOLEAN
+- `details`: JSONB
+- `provider_id`: INTEGER (FK a `prestadores.id`)
+- `auditor_id`: INTEGER (FK a `users.id`)
+- `internment_id`: BIGINT (FK a `internments.id`)
+
+### Tabla: `notifications`
+- `id`: SERIAL PRIMARY KEY
+- `provider_id`: INTEGER (FK a `prestadores.id`)
+- `interment_id`: BIGINT (FK a `internments.id`)
+- `message`: TEXT
+- `is_read`: BOOLEAN
+- `created_at`: TIMESTAMP 

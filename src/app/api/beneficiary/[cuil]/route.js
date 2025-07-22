@@ -1,14 +1,14 @@
 // src/app/api/beneficiary/[cuil]/route.js
 
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyToken } from '@/lib/auth';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]/route';
 
-// La lógica para la API externa es la misma que en tu server.js original
-const SAAS_API_URL = 'https://fosforo.client-api.saas.com.ar/api';
-const SAAS_API_AUTH_HEADER = 'Basic c2Fhcy1iYXNpYzoyMldGK2VVXmJm';
-const SAAS_USERNAME = 'soporte@ospif.ar';
-const SAAS_PASSWORD = 'sistemasOSPIF24';
+// Las credenciales ahora se leen de las variables de entorno
+const SAAS_API_URL = process.env.SAAS_API_URL;
+const SAAS_API_AUTH_HEADER = process.env.SAAS_API_AUTH_HEADER;
+const SAAS_USERNAME = process.env.SAAS_USERNAME;
+const SAAS_PASSWORD = process.env.SAAS_PASSWORD;
 
 // NOTA: En una aplicación real, el token debería cachearse de forma más robusta.
 async function getSaasToken() {
@@ -30,16 +30,10 @@ async function getSaasToken() {
 }
 
 export async function GET(request, { params }) {
-  // --- 1. VERIFICACIÓN DE SESIÓN ---
-  const tokenCookie = cookies().get('token');
-  if (!tokenCookie) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
     return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
   }
-  const decodedSession = verifyToken(tokenCookie.value);
-  if (!decodedSession) {
-      return NextResponse.json({ message: 'Sesión inválida o expirada.' }, { status: 401 });
-  }
-  // --- FIN DE VERIFICACIÓN ---
 
   const { cuil } = params;
 

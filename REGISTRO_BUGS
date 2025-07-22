@@ -1,0 +1,201 @@
+# REGISTRO DE BUGS SOLUCIONADOS - Portal de Gestión OSPIF
+
+Este documento sirve como un registro centralizado de todos los bugs identificados y solucionados durante el desarrollo y mantenimiento del proyecto.
+
+---
+
+## Bug #1: Error de Renderizado en Componentes de Cliente (LogoutButton)
+
+-   **Fecha de Solución:** (Aproximada)
+-   **Módulo Afectado:** Autenticación / UI Layouts
+-   **Error Reportado:** `Event handlers cannot be passed to Client Component props`.
+-   **Descripción:** La aplicación crasheaba o mostraba un error al intentar renderizar los layouts principales después de que un usuario iniciara sesión.
+-   **Causa Raíz:** El componente `LogoutButton` se definía localmente dentro de los layouts (`/app/(app)/layout.js` y `/app/portal/(main)/layout.jsx`), que son Componentes de Servidor. Al pasar la función `onClick` como prop a este botón (que implícitamente debía ser un Componente de Cliente), se violaba una regla fundamental de la arquitectura de React Server Components de Next.js.
+-   **Solución Aplicada:**
+    1.  Se extrajo la lógica del botón a un componente reutilizable y explícitamente de cliente en `src/components/ui/LogoutButton.jsx` (marcado con `'use client'`).
+    2.  Se eliminó la definición local del botón en los layouts.
+    3.  Ambos layouts fueron modificados para importar y renderizar el nuevo componente `LogoutButton`, separando limpiamente las responsabilidades del servidor y del cliente.
+-   **Resultado:** El error de renderizado fue eliminado, y la estructura del código se alineó con las mejores prácticas de Next.js, mejorando la mantenibilidad.
+
+---
+
+## Bug #2: Módulo de Utilidad de Fechas Inexistente
+
+-   **Fecha de Solución:** (Aproximada)
+-   **Módulo Afectado:** Portal de Prestadores / Gestión de Internaciones
+-   **Error Reportado:** Error de compilación `Module not found: Can't resolve '@/lib/date-utils'`.
+-   **Descripción:** La aplicación no podía compilar al intentar acceder a cualquier funcionalidad que dependiera del modal de detalles de internación.
+-   **Causa Raíz:** El componente `InternmentDetailModal.jsx` importaba y utilizaba una función (`calculateBusinessDays`) desde un archivo (`@/lib/date-utils.js`) que no existía en el repositorio del proyecto.
+-   **Solución Aplicada:**
+    1.  Se creó el archivo `src/lib/date-utils.js`.
+    2.  Se implementó la función `calculateBusinessDays` de manera robusta. Esta implementación incluye la consulta a una API externa (`api.argentinadatos.com`) para obtener una lista actualizada de feriados en Argentina, asegurando que el cálculo de días hábiles sea siempre preciso y no requiera mantenimiento manual.
+    3.  Se añadió un sistema de caché para minimizar las llamadas a la API de feriados.
+-   **Resultado:** El error de compilación fue resuelto. La aplicación ahora cuenta con una utilidad de cálculo de fechas precisa y auto-actualizable.
+
+---
+
+## Bug #3: Fallo en la Carga del Panel de Internaciones
+
+-   **Fecha de Solución:** (Aproximada)
+-   **Módulo Afectado:** Portal de Prestadores / API
+-   **Error Reportado:** `Error: No se pudieron cargar las internaciones` mostrado en un toast al acceder al panel principal del prestador.
+-   **Descripción:** Los prestadores no podían ver su lista de internaciones; la llamada a la API fallaba silenciosamente en el backend y devolvía un error al frontend.
+-   **Causa Raíz:** El endpoint `GET /api/portal/internments-panel/route.js`, que alimenta este panel, no había sido actualizado durante la migración a NextAuth. Todavía utilizaba la lógica de autenticación manual (verificación de token JWT en una cookie específica), la cual ya no era válida. La falta de un token válido causaba un fallo de autorización.
+-   **Solución Aplicada:**
+    1.  Se refactorizó el endpoint `internments-panel` para utilizar la función `getServerSession` de NextAuth para obtener la sesión del usuario.
+    2.  Se eliminó toda la lógica de autenticación manual obsoleta.
+    3.  La consulta a la base de datos se adaptó para usar el `id` del usuario obtenido de la sesión de NextAuth.
+-   **Resultado:** El endpoint ahora se autentica correctamente, y el panel de internaciones carga los datos como se esperaba.
+
+---
+
+## Bug #4: Módulo "Mis Autorizaciones" No Funcional
+
+-   **Fecha de Solución:** (Aproximada)
+-   **Módulo Afectado:** Portal de Prestadores / Mis Autorizaciones / API
+-   **Error Reportado:** `Error: No autorizado` al intentar ver la lista de autorizaciones, o al intentar confirmar o rechazar una de ellas.
+-   **Descripción:** Ninguna de las funcionalidades dentro de la página "Mis Autorizaciones" funcionaba. Cada interacción resultaba en un error de autorización.
+-   **Causa Raíz:** Similar al bug anterior, los tres endpoints de API que sustentan este módulo (`GET /`, `PATCH /[id]/confirm`, `PATCH /[id]/reject` en la ruta `/api/portal/my-authorizations/`) no habían sido migrados a NextAuth y seguían utilizando el sistema de autenticación manual obsoleto.
+-   **Solución Aplicada:**
+    1.  Se refactorizaron los tres endpoints afectados para que todos utilicen `getServerSession` de NextAuth para la autenticación y obtención de la identidad del usuario.
+    2.  Se eliminó el código de verificación de token duplicado y obsoleto de cada uno de ellos.
+-   **Resultado:** Toda la funcionalidad del módulo "Mis Autorizaciones" fue restaurada. Los prestadores ahora pueden ver, confirmar y rechazar sus autorizaciones correctamente. 
+
+---
+
+## Bug #5: Error de Compilación por Ruta de Importación Incorrecta
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** Portal de Prestadores / UI
+-   **Error Reportado:** `Module not found: Can't resolve '@/components/Modal'`.
+-   **Descripción:** La aplicación no compilaba al intentar acceder a la ruta `/portal/internments-panel` debido a que no podía resolver la importación de un componente.
+-   **Causa Raíz:** El archivo `src/components/internaciones/InternmentDetailModal.jsx` intentaba importar el componente `Modal` desde la ruta `@/components/Modal`. Sin embargo, la estructura del proyecto ubica este componente en un subdirectorio, en `src/components/ui/Modal.jsx`. La ruta de importación era incorrecta.
+-   **Solución Aplicada:**
+    1.  Se verificó la estructura de directorios de `src/components` para localizar la ubicación correcta del componente `Modal`.
+    2.  Se corrigió la declaración de importación en `InternmentDetailModal.jsx` para que apunte a la ruta correcta: `import Modal from '@/components/ui/Modal';`.
+-   **Resultado:** El error de compilación fue resuelto, permitiendo que el panel de internaciones y sus componentes asociados se rendericen correctamente. 
+
+---
+
+## Bug #6: Desbordamiento de UI en Formulario de Presupuesto
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** Portal de Prestadores / UI / Gestión de Internaciones
+-   **Error Reportado:** En el formulario de solicitud de presupuesto, al añadir dinámicamente muchos conceptos, los botones de acción ("Cancelar", "Enviar Solicitud") quedaban fuera de la pantalla, volviéndose inaccesibles.
+-   **Descripción:** El contenedor del formulario no manejaba correctamente el desbordamiento de contenido vertical. A medida que el usuario agregaba ítems, la altura total del formulario excedía la del modal, ocultando los controles inferiores.
+-   **Causa Raíz:** El formulario era un único bloque monolítico. La altura del modal estaba restringida, pero el contenido interno del formulario no tenía un mecanismo de scroll propio, causando el desbordamiento.
+-   **Solución Aplicada (Definitiva):**
+    1.  **Cambio de Enfoque:** Se determinó que una simple solución de scroll no ofrecía la mejor experiencia de usuario. Se decidió refactorizar completamente el formulario a un **wizard (asistente) de 4 pasos**.
+    2.  **Implementación del Wizard:**
+        -   Se refactorizó `BudgetRequestForm.jsx` para gestionar un estado de paso (`step`).
+        -   **Paso 1:** Información general (datos del prestador/beneficiario y nombre del solicitante).
+        -   **Paso 2:** Detalle de conceptos, con cálculo de total en tiempo real.
+        -   **Paso 3:** Inclusiones y exclusiones, con campos de texto condicionales.
+        -   **Paso 4:** Resumen final de solo lectura para revisión.
+    3.  **UI Robusta:** El nuevo diseño utiliza un layout de `flexbox` con un `header` y `footer` fijos, y un área de contenido central con `overflow-y-auto`, asegurando que los botones de navegación (`Anterior`, `Siguiente`, `Enviar`) estén siempre visibles.
+    4.  **Actualización de API:** Se modificó el endpoint `POST /api/portal/internments/[id]/request-budget` para que acepte y almacene los nuevos campos detallados de inclusiones y exclusiones.
+-   **Resultado:** El bug de UI fue resuelto de manera definitiva. La funcionalidad de solicitud de presupuesto es ahora mucho más robusta, intuitiva y profesional, guiando al usuario a través de un proceso estructurado y evitando cualquier problema de desbordamiento de contenido. 
+
+---
+
+## Bug #7: Fallo al Visualizar Archivos Adjuntos
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Gestión de Archivos
+-   **Error Reportado:** Error de compilación `Module not found: Can't resolve '@/lib/auth'`.
+-   **Descripción:** Al hacer clic en un archivo adjunto dentro del modal de detalle de internación, la aplicación fallaba y no mostraba el archivo.
+-   **Causa Raíz:** El endpoint de la API responsable de servir los archivos (`/api/files/[filename]/route.js`) no había sido actualizado durante la migración masiva a NextAuth. Todavía intentaba importar una función (`getSession`) desde la librería de autenticación manual (`@/lib/auth`) que ya había sido eliminada, causando el error de compilación.
+-   **Solución Aplicada:**
+    1.  Se localizó el endpoint obsoleto.
+    2.  Se refactorizó para que utilice `getServerSession` de NextAuth.js para la verificación de la sesión del usuario.
+    3.  Se reemplazó la llamada a la antigua función `getSession()` por `getServerSession(authOptions)`.
+-   **Resultado:** El error fue solucionado. El endpoint de archivos ahora utiliza el sistema de autenticación centralizado, permitiendo que los usuarios autenticados puedan visualizar los documentos adjuntos de forma segura y correcta. 
+
+---
+
+## Bug #8: Modales Anidados No Visibles y Falta de Feedback Visual
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / Gestión de Internaciones
+-   **Error Reportado:** Al hacer clic en una prórroga o práctica dentro del modal de detalles, el modal secundario con la información no aparecía. Además, los elementos no parecían clickeables.
+-   **Descripción:** La funcionalidad para ver detalles en modales anidados no funcionaba como se esperaba.
+-   **Causa Raíz:** Dos problemas:
+    1.  **Conflicto de `z-index`:** El `Modal` genérico se renderizaba con un `z-index` inferior (`z-40`) al del modal principal (`z-50`), causando que el modal secundario se abriera por detrás y quedara oculto.
+    2.  **Falta de Affordance:** El texto de los ítems en las listas no tenía ningún estilo que sugiriera que eran interactivos.
+-   **Solución Aplicada:**
+    1.  Se modificó `src/components/ui/Modal.jsx`, aumentando su `z-index` a `z-50` para que los modales anidados siempre se muestren por encima del anterior.
+    2.  Se modificó `src/components/internaciones/InternmentDetailModal.jsx`, añadiendo clases de Tailwind (`text-blue-600`, `hover:text-blue-800`) a los títulos de las prórrogas y prácticas para hacerlos visualmente clickeables.
+-   **Resultado:** Se solucionó el problema de visibilidad de los modales. La interfaz ahora comunica claramente qué elementos son interactivos, mejorando la usabilidad.
+
+---
+
+## Bug #9: Error de Compilación en Múltiples Endpoints por Ruta Incorrecta
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Autenticación
+-   **Error Reportado:** `Module not found: Can't resolve '../../../auth/[...nextauth]/route'` (y variantes) en varios endpoints.
+-   **Descripción:** Varios endpoints de la API, como el de servir archivos y el de solicitar prórrogas, fallaban al compilar después de haber sido refactorizados a NextAuth.
+-   **Causa Raíz:** La ruta de importación para `authOptions` desde la configuración de NextAuth (`src/app/api/auth/[...nextauth]/route.js`) era incorrecta. Se había calculado mal la cantidad de directorios que había que retroceder (`../`).
+-   **Solución Aplicada:**
+    1.  Se revisó la estructura de directorios para cada endpoint afectado.
+    2.  Se corrigió la ruta relativa en la declaración `import { authOptions } from '...'` en los archivos `/api/files/[filename]/route.js` y `/api/portal/internments/[id]/request-extension/route.js`, asegurando que apuntara correctamente al archivo de configuración de NextAuth.
+-   **Resultado:** Los errores de compilación fueron eliminados, restaurando la funcionalidad de los endpoints afectados. 
+
+---
+
+## Bug #10: Falla en Renderizado Condicional de Modales Anidados
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / Componentes Genéricos
+-   **Error Reportado:** Al hacer clic en un ítem interactivo (como una prórroga), el modal de detalle no aparecía en pantalla.
+-   **Descripción:** A pesar de que el estado para mostrar el modal se actualizaba correctamente, el componente `Modal` no se renderizaba.
+-   **Causa Raíz:** El componente `Modal` genérico (`src/components/ui/Modal.jsx`) tenía una lógica interna que esperaba una prop booleana `isOpen` para decidir si debía renderizarse o no (`if (!isOpen) return null;`). Sin embargo, al llamar a este componente desde `InternmentDetailModal.jsx`, solo se estaba usando la renderización condicional de React (`estado && <Modal>...`), pero sin pasar la prop `isOpen` explícitamente. Como `isOpen` llegaba como `undefined`, el modal nunca se mostraba.
+-   **Solución Aplicada:**
+    1.  Se modificó el componente `InternmentDetailModal.jsx`.
+    2.  En todas las instancias donde se llamaba al componente `Modal` de forma condicional, se añadió la prop `isOpen` explícita, pasando el valor booleano correcto derivado del estado. (Ej: `isOpen={!!selectedProrroga}`).
+-   **Resultado:** El bug fue solucionado. El componente `Modal` ahora respeta su contrato de props y se renderiza correctamente cuando se le invoca, permitiendo que la funcionalidad de modales anidados funcione como se esperaba. 
+
+---
+
+## Bug #11: Fallo al Crear Nuevas Internaciones por Inconsistencia de Estado
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Gestión de Internaciones
+-   **Error Reportado:** `Error interno del servidor: la sintaxis de entrada no es válida para el enum internment_status: «Activa»`.
+-   **Descripción:** El wizard para crear una nueva internación fallaba en el último paso con un error 500 del servidor.
+-   **Causa Raíz:** El endpoint `POST /api/portal/internments/route.js`, responsable de crear la nueva internación en la base de datos, no había sido actualizado después de la migración de la columna `status` a un tipo `ENUM`. El endpoint intentaba insertar el valor de texto `'Activa'`, mientras que el `ENUM` en PostgreSQL esperaba el valor `'ACTIVA'` (o, más correctamente, `'INICIADA'` para una nueva internación).
+-   **Solución Aplicada:**
+    1.  Se modificó el endpoint `internments/route.js`.
+    2.  Se cambió el valor de estado hardcodeado en la sentencia `INSERT` de `'Activa'` al valor correcto del `ENUM` para una nueva internación: `'INICIADA'`.
+-   **Resultado:** El bug fue solucionado. Las nuevas internaciones ahora se crean con el estado inicial correcto, en conformidad con el esquema de la base de datos y la lógica de negocio del ciclo de vida.
+
+---
+
+## Bug #12: Desaparición de Internaciones en el Panel Principal
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / Portal de Prestadores
+-   **Error Reportado:** Después de la implementación del nuevo ciclo de vida, todas las internaciones desaparecieron del panel principal en `/portal/internments-panel`.
+-   **Descripción:** Aunque las internaciones existían en la base de datos, el panel se mostraba vacío.
+-   **Causa Raíz:** El problema estaba en la lógica de filtrado del frontend. El componente del panel (`internments-panel/page.jsx`) tenía pestañas para "Activas" y "Finalizadas" y filtraba la lista de internaciones basándose en los valores de texto antiguos (`'Activa'`, `'Finalizada'`). Como ahora los estados eran `'INICIADA'`, `'ACTIVA'`, etc., ninguna internación cumplía con el criterio de filtro de la pestaña "Activas".
+-   **Solución Aplicada:**
+    1.  Se modificó la lógica del `useMemo` que calcula `displayedInternments` en el componente del panel.
+    2.  El filtro para la pestaña "Activas" se cambió para que muestre todas las internaciones cuyo estado **no sea** `'FINALIZADA'`.
+    3.  Se actualizó el componente `StatusBadge` para que reconozca y muestre correctamente los nuevos estados (`INICIADA`, `OBSERVADA`, `INACTIVA`) con sus respectivos colores e iconos.
+-   **Resultado:** Se solucionó el bug de visualización. El panel ahora muestra correctamente todas las internaciones activas y en curso, y los estados se representan visualmente de manera precisa. 
+
+---
+
+## Bug #13: Error 404 en la Página de Autorizaciones para el Rol de Auditor
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / API / Roles y Permisos
+-   **Error Reportado:** Al iniciar sesión como 'auditor' y navegar a la página `/autorizaciones`, se producía un error 404, impidiendo el acceso a la funcionalidad.
+-   **Descripción:** A pesar de que la página existía en el sistema de archivos (`src/app/(app)/autorizaciones/page.jsx`) y el enlace en el layout era correcto, Next.js no podía renderizar la página para este rol específico.
+-   **Causa Raíz:** El problema era una combinación de lógica de datos inadecuada y falta de un endpoint específico. La página (`AutorizacionesPage`) estaba diseñada para un rol de administrador y realizaba una petición `fetch` al endpoint genérico `/api/autorizaciones`. Este endpoint, a su vez, no estaba preparado para manejar una petición de un rol 'auditor' y devolvía datos en un formato o con un estado que la página no esperaba, causando un error durante el renderizado en el servidor que se manifestaba como un 404.
+-   **Solución Aplicada (Proceso en dos fases):**
+    1.  **Diagnóstico:** Se modificó temporalmente el endpoint `GET /api/autorizaciones` para que devolviera un array vacío `[]` si el solicitante no era 'admin'. Esto eliminó el error 404, confirmando que el problema era el manejo de los datos y no un problema de enrutamiento o middleware. La página ahora cargaba, aunque vacía.
+    2.  **Implementación Definitiva (Próximo Paso):** 
+        - Se creará un nuevo endpoint dedicado `GET /api/auditor/authorizations` que devolverá la lista de autorizaciones filtrada específicamente para lo que necesita ver un auditor.
+        - Se modificará la página `/autorizaciones` para que detecte el rol del usuario. Si es 'auditor', llamará al nuevo endpoint específico; si es 'admin', seguirá usando el endpoint genérico.
+-   **Resultado:** El error 404 fue diagnosticado y se estableció una ruta clara para su solución definitiva, que implica la creación de un endpoint de API específico para el rol y la adición de lógica condicional en el frontend para consumirlo. 

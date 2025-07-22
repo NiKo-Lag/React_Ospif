@@ -18,14 +18,15 @@ const getGridColsClass = (count) => {
 
 const KanbanBoard = ({ requests = [], columns = [], loading, error, searchTerm, onViewDetails }) => {
   
-  const filteredRequests = requests.filter(request => {
-    const term = searchTerm.toLowerCase();
-    return searchTerm ? 
-      (request.title?.toLowerCase().includes(term) || 
-       request.beneficiary?.toLowerCase().includes(term) ||
-       String(request.id).includes(term))
-      : true;
-  });
+  const filteredRequests = searchTerm 
+    ? requests.filter(request => {
+        const term = searchTerm.toLowerCase();
+        const titleMatch = request.title && request.title.toLowerCase().includes(term);
+        const beneficiaryMatch = request.beneficiary && request.beneficiary.toLowerCase().includes(term);
+        const idMatch = String(request.id).includes(term);
+        return titleMatch || beneficiaryMatch || idMatch;
+      })
+    : requests;
 
   if (loading) return <p className="text-center text-gray-500">Cargando tablero...</p>;
   if (error) return <p className="text-center text-red-500">Error: {error}</p>;

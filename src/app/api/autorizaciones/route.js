@@ -24,7 +24,7 @@ export async function GET() {
         a.status, 
         a.is_important as "isImportant", 
         a.details,
-        p.razonSocial as provider_name,
+        p.razonsocial as provider_name,
         u.name as auditor_name
       FROM authorizations a
       LEFT JOIN prestadores p ON a.provider_id = p.id
@@ -44,7 +44,10 @@ export async function GET() {
  * **FUNCIÓN ACTUALIZADA**
  */
 export async function POST(request) {
+  const client = await pool.connect(); // Usar cliente para la transacción
   try {
+    await client.query('BEGIN'); // Iniciar transacción
+
     const formData = await request.formData();
     const detailsString = formData.get('details');
     const attachment = formData.get('attachment');
@@ -86,7 +89,7 @@ export async function POST(request) {
     };
 
     // --- 2. Actualizamos la consulta para incluir 'internment_id' ---
-    const query = `
+    const insertAuthQuery = `
       INSERT INTO authorizations (id, type, title, beneficiary_name, status, is_important, details, provider_id, auditor_id, internment_id)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *;
@@ -106,14 +109,30 @@ export async function POST(request) {
       internmentId
     ];
 
-    const result = await pool.query(query, values);
-    return NextResponse.json(result.rows[0], { status: 201 });
+    const authResult = await client.query(insertAuthQuery, values);
+    const newAuthorization = authResult.rows[0];
+
+    // --- 4. Crear notificación si se asignó un prestador ---
+    if (providerId) {
+        const notificationMessage = `Se le ha asignado una nueva práctica: "${newAuthorization.title}" para ${newAuthorization.beneficiary_name}.`;
+        const insertNotificationQuery = `
+            INSERT INTO notifications (provider_id, internment_id, message, is_read, related_authorization_id)
+            VALUES ($1, $2, $3, FALSE, $4)
+        `;
+        await client.query(insertNotificationQuery, [providerId, newAuthorization.internment_id, notificationMessage, newAuthorization.id]);
+    }
+
+    await client.query('COMMIT'); // Finalizar transacción
+    return NextResponse.json(newAuthorization, { status: 201 });
 
   } catch (error) {
+    await client.query('ROLLBACK'); // Revertir en caso de error
     console.error("Error al crear la autorización:", error);
     if (error instanceof SyntaxError) {
         return NextResponse.json({ message: 'El formato de los detalles (JSON) es inválido.' }, { status: 400 });
     }
     return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
+  } finally {
+      client.release();
   }
 }

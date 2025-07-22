@@ -2,15 +2,13 @@
 
 import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
-import { cookies } from 'next/headers';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../../../auth/[...nextauth]/route';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
-
-const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
 /**
  * Confirma la asistencia a una práctica, cambiando su estado.
@@ -19,16 +17,13 @@ export async function PATCH(request, { params }) {
   try {
     const { id } = params; // ID de la autorización
 
-    // 1. Verificar la sesión del prestador
-    const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
-    if (!token) {
+    const session = await getServerSession(authOptions);
+    if (!session || session.user.role !== 'provider') {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
     }
-    const decodedToken = jwt.verify(token.value, JWT_SECRET);
-    const providerId = decodedToken.id;
+    const providerId = session.user.id;
 
-    // 2. Actualizar el estado de la autorización a 'Realizada'
+    // Actualizar el estado de la autorización a 'Realizada'
     // Se asegura de que solo el prestador asignado pueda confirmar la asistencia.
     const query = `
       UPDATE authorizations

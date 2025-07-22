@@ -2,8 +2,8 @@
 
 import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
-import { cookies } from 'next/headers';
-import { verifyToken } from '@/lib/auth';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../../auth/[...nextauth]/route';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -11,18 +11,14 @@ const pool = new Pool({
 });
 
 export async function PATCH(request, { params }) {
-  const { id } = params;
-
-  const tokenCookie = cookies().get('token');
-  if (!tokenCookie) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
     return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
   }
-  const decodedSession = verifyToken(tokenCookie.value);
-  if (!decodedSession) {
-    return NextResponse.json({ message: 'Sesión inválida o expirada.' }, { status: 401 });
-  }
 
+  const { id } = params;
   const client = await pool.connect();
+
   try {
     const { egreso_date, egreso_reason } = await request.json();
 
@@ -32,25 +28,32 @@ export async function PATCH(request, { params }) {
 
     await client.query('BEGIN');
     
-    // Obtener la internación para asegurar que pertenece al prestador
+    // Obtener la internación y su estado actual para asegurar que pertenece al prestador
     const internmentResult = await client.query(
-      'SELECT notifying_provider_id FROM internments WHERE id = $1',
+      'SELECT notifying_provider_id, status FROM internments WHERE id = $1 FOR UPDATE',
       [id]
     );
 
     if (internmentResult.rowCount === 0) {
       return NextResponse.json({ message: 'Internación no encontrada.' }, { status: 404 });
     }
+    const { notifying_provider_id, status } = internmentResult.rows[0];
 
-    if (internmentResult.rows[0].notifying_provider_id !== decodedSession.id) {
+    if (notifying_provider_id !== session.user.id) {
       return NextResponse.json({ message: 'No tiene permiso para modificar esta internación.' }, { status: 403 });
+    }
+
+    // Comprobar que solo se puede finalizar una internación activa
+    if (status !== 'ACTIVA') {
+        await client.query('ROLLBACK');
+        return NextResponse.json({ message: `No se puede finalizar una internación que no está activa. Estado actual: ${status}` }, { status: 400 });
     }
 
     // Actualizar la internación
     const updateQuery = `
       UPDATE internments 
       SET 
-        status = 'Finalizada', 
+        status = 'FINALIZADA',
         egreso_date = $1,
         details = jsonb_set(
             COALESCE(details, '{}'::jsonb),

@@ -2,10 +2,10 @@
 
 import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
-import { cookies } from 'next/headers';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { verifyToken } from '@/lib/auth';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]/route';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -22,99 +22,134 @@ async function ensureStorageDirectoryExists() {
 }
 
 export async function POST(request) {
-  const tokenCookie = cookies().get('token');
-  if (!tokenCookie) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
     return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
   }
-  const decodedSession = verifyToken(tokenCookie.value);
-  if (!decodedSession) {
-    return NextResponse.json({ message: 'Sesión inválida o expirada.' }, { status: 401 });
-  }
 
-  const providerId = decodedSession.id;
+  const creatorId = session.user.id;
+  const creatorRole = session.user.role;
   const client = await pool.connect();
 
   try {
+    await client.query('BEGIN');
+
     const formData = await request.formData();
     const detailsString = formData.get('details');
     const files = formData.getAll('files');
     
     if (!detailsString) {
+      await client.query('ROLLBACK');
       return NextResponse.json({ message: 'Faltan los detalles de la internación.' }, { status: 400 });
     }
 
     const { beneficiary, formData: internmentData } = JSON.parse(detailsString);
 
-    await ensureStorageDirectoryExists();
-    const uploadedDocumentation = [];
-
-    for (const file of files) {
-      const fileBuffer = await file.arrayBuffer();
-      const originalFilename = file.name;
-      const uniqueFilename = `${Date.now()}-${originalFilename.replace(/\s+/g, '_')}`;
-      const filePath = path.join(process.cwd(), 'storage', uniqueFilename);
-      
-      await fs.writeFile(filePath, Buffer.from(fileBuffer));
-
-      uploadedDocumentation.push({
-        filename: uniqueFilename,
-        originalFilename: originalFilename,
-        uploadDate: new Date().toISOString(),
-        uploader: decodedSession.name,
-      });
+    // Determinar a quién se le asigna la internación.
+    // Si el que crea es un 'provider', se le asigna a sí mismo.
+    // Si es otro rol, debe venir en los datos del formulario.
+    const assignedProviderId = creatorRole === 'provider' ? creatorId : internmentData.provider_id;
+    if (!assignedProviderId) {
+        await client.query('ROLLBACK');
+        return NextResponse.json({ message: 'No se ha especificado un prestador para la internación.' }, { status: 400 });
     }
-    
-    await client.query('BEGIN');
 
-    const newInternmentId = Date.now();
+    // 1. Obtener CUIT del prestador
+    const providerResult = await client.query('SELECT cuit FROM prestadores WHERE id = $1', [assignedProviderId]);
+    if (providerResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return NextResponse.json({ message: 'No se encontró el prestador.' }, { status: 404 });
+    }
+    const providerCuit = providerResult.rows[0].cuit;
 
-    // Corregido: La consulta ahora coincide con el esquema de la base de datos del usuario.
-    const query = `
+    // 2. Insertar la internación con el estado inicial y la documentación
+    const insertQuery = `
       INSERT INTO internments (
         id, notifying_provider_id, beneficiary_cuil, beneficiary_name, 
         admission_datetime, character, admission_type, admission_sector,
         admission_reason, attending_doctor, room_number, presumptive_diagnosis,
-        clinical_summary, status, details
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        clinical_summary, status, documentation, details
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      RETURNING id;
     `;
     
-    // Corregido: El objeto de detalles ahora incluye la documentación y los comentarios.
-    const detailsPayload = {
-        documentation: uploadedDocumentation,
-        comments: internmentData.additionalComments,
+    // 3. Procesar y renombrar archivos
+    await ensureStorageDirectoryExists();
+    const uploadedDocumentation = [];
+    const beneficiaryNameSanitized = beneficiary.nombre.replace(/[^a-zA-Z0-9]/g, '');
+    const newInternmentId = Date.now(); 
+
+    for (const [index, file] of files.entries()) {
+      const fileExtension = path.extname(file.name);
+      const newFilename = `${newInternmentId}_${beneficiaryNameSanitized}_${providerCuit}_${index + 1}${fileExtension}`;
+      
+      const fileBuffer = await file.arrayBuffer();
+      const filePath = path.join(process.cwd(), 'storage', newFilename);
+      
+      await fs.writeFile(filePath, Buffer.from(fileBuffer));
+
+      uploadedDocumentation.push({
+        filename: newFilename,
+        originalFilename: file.name,
+        uploadDate: new Date().toISOString(),
+        uploader: session.user.name, // Usamos el nombre de la sesión
+      });
+    }
+
+    const initialDetails = { 
+        comments: internmentData.additionalComments, 
         extension_requests: [],
+        events: [] // Inicializar array de eventos
     };
-
-    // Corregido: El array de valores ahora coincide con la nueva consulta.
-    const values = [
+    const insertValues = [
       newInternmentId,
-      providerId,
-      beneficiary.cuil,
-      beneficiary.nombre,
+      assignedProviderId, 
+      beneficiary.cuil, 
+      beneficiary.nombre, 
       internmentData.admissionDatetime,
-      internmentData.internmentType,
-      internmentData.admissionType,
+      internmentData.internmentType, 
+      internmentData.admissionType, 
       internmentData.admissionSector,
-      internmentData.admissionReason,
-      internmentData.attendingDoctor,
+      internmentData.admissionReason, 
+      internmentData.attendingDoctor, 
       internmentData.roomNumber,
-      internmentData.presumptiveDiagnosis,
-      internmentData.clinicalSummary,
-      'Activa',
-      JSON.stringify(detailsPayload),
+      internmentData.presumptiveDiagnosis, 
+      internmentData.clinicalSummary, 
+      'INICIADA', // <<< CORRECCIÓN CLAVE
+      JSON.stringify(uploadedDocumentation),
+      JSON.stringify(initialDetails)
     ];
+    
+    const result = await client.query(insertQuery, insertValues);
+    const createdId = result.rows[0].id;
 
-    await client.query(query, values);
+    // --- Lógica de Notificación ---
+    // Si el creador no es el mismo que el prestador asignado, enviar notificación.
+    if (creatorId !== assignedProviderId) {
+        const notificationMessage = `Se le ha asignado una nueva internación programada para ${beneficiary.nombre}.`;
+        const insertNotificationQuery = `
+            INSERT INTO notifications (provider_id, internment_id, message, is_read)
+            VALUES ($1, $2, $3, FALSE)
+        `;
+        await client.query(insertNotificationQuery, [assignedProviderId, createdId, notificationMessage]);
+    }
+
+
     await client.query('COMMIT');
 
-    return NextResponse.json({ message: 'Denuncia de internación creada con éxito.', id: newInternmentId }, { status: 201 });
+    return NextResponse.json({ message: 'Denuncia de internación creada con éxito.', id: createdId }, { status: 201 });
 
   } catch (error) {
-    await client.query('ROLLBACK');
+    // Si ya se ha iniciado una transacción, hacer rollback
+    if (client) {
+      await client.query('ROLLBACK');
+    }
     console.error("Error al crear la denuncia de internación:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json({ message: `Error interno del servidor: ${errorMessage}` }, { status: 500 });
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 } 

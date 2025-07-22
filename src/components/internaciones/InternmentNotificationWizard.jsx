@@ -155,7 +155,14 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
     const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        // La 'e' del evento no es necesaria si se llama manualmente
+        if (e) e.preventDefault();
+        
+        if (!canGoToNextStep) {
+            toast.error('Por favor, complete todos los campos obligatorios del paso 2.');
+            return;
+        }
+
         setIsSubmitting(true);
         const toastId = toast.loading('Enviando notificación...');
         try {
@@ -188,7 +195,8 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
             <div className="p-8">
                 <ProgressBar currentStep={currentStep} steps={stepNames} />
             </div>
-            <form id="notification-form" className="p-8 pt-0" onSubmit={handleSubmit}>
+            {/* El formulario ya no necesita su propio evento onSubmit */}
+            <div id="notification-form" className="p-8 pt-0">
                 <div className={currentStep === 1 ? 'block' : 'hidden'}>
                     <h2 className="text-xl font-semibold text-gray-700 mb-6">Paso 1: Buscar y confirmar beneficiario</h2>
                     <div className="space-y-6">
@@ -250,26 +258,41 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
                     </div>
                 </div>
                 <div className={currentStep === 3 ? 'block' : 'hidden'}>
-                    <h2 className="text-xl font-semibold text-gray-700 mb-6">Paso 3: Adjuntar documentación y comentarios</h2>
-                    <div className="space-y-6">
-                        <DropZone files={files} setFiles={setFiles} />
-                        <div>
-                            <label htmlFor="additionalComments" className="block mb-2 text-sm font-medium text-gray-700">Comentarios Adicionales <span className="text-gray-500 font-normal">(Opcional)</span></label>
-                            <textarea id="additionalComments" rows="4" value={formData.additionalComments} onChange={handleInputChange} className="w-full px-4 py-2 border rounded-md" placeholder="Añada cualquier información relevante..."></textarea>
-                        </div>
-                    </div>
+                    <h2 className="text-xl font-semibold text-gray-700 mb-6">Paso 3: Adjuntar documentación de respaldo</h2>
+                    <DropZone files={files} setFiles={setFiles} />
                 </div>
-                <div className="flex justify-between items-center pt-8 mt-8 border-t border-gray-200">
-                    <button type="button" id="prev-btn" onClick={prevStep} disabled={currentStep === 1} className="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 disabled:opacity-50">Anterior</button>
-                    {currentStep < stepNames.length ? (
-                        <button type="button" id="next-btn" onClick={nextStep} disabled={!canGoToNextStep} className="px-6 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md shadow-sm hover:bg-indigo-700 disabled:opacity-50">Siguiente</button>
-                    ) : (
-                        <button type="submit" id="submit-btn" disabled={isSubmitting} className="px-6 py-2 text-sm font-medium text-white bg-green-600 rounded-md shadow-sm hover:bg-green-700 disabled:opacity-50">
-                            {isSubmitting ? 'Enviando...' : 'Enviar Notificación'}
-                        </button>
-                    )}
-                </div>
-            </form>
+            </div>
+
+            <div className="p-8 pt-4 border-t flex justify-between">
+                <button 
+                    type="button"
+                    onClick={prevStep} 
+                    disabled={currentStep === 1 || isSubmitting}
+                    className="px-6 py-2 text-gray-700 bg-white border rounded-md hover:bg-gray-100 disabled:opacity-50"
+                >
+                    Anterior
+                </button>
+
+                {currentStep < stepNames.length ? (
+                    <button 
+                        type="button"
+                        onClick={nextStep} 
+                        disabled={!canGoToNextStep || isSubmitting}
+                        className="px-6 py-2 text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                        Siguiente
+                    </button>
+                ) : (
+                    <button 
+                        type="button"
+                        onClick={handleSubmit} 
+                        disabled={isSubmitting}
+                        className="px-6 py-2 text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
+                    >
+                        {isSubmitting ? 'Enviando...' : 'Finalizar y Enviar Notificación'}
+                    </button>
+                )}
+            </div>
         </div>
     );
 }

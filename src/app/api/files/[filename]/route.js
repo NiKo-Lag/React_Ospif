@@ -1,7 +1,8 @@
 // src/app/api/files/[filename]/route.js
 
 import { NextResponse } from 'next/server';
-import { getSession } from '@/lib/auth';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../auth/[...nextauth]/route'; // RUTA CORREGIDA
 import path from 'path';
 import { readFile, stat } from 'fs/promises';
 
@@ -21,9 +22,9 @@ function getMimeType(filename) {
 }
 
 export async function GET(request, { params }) {
-  // 1. VERIFICAR AUTENTICACIÓN
-  const session = await getSession();
-  if (!session) {
+  // 1. VERIFICAR AUTENTICACIÓN (Refactorizado a NextAuth)
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
     return new NextResponse('Acceso denegado', { status: 403 });
   }
 

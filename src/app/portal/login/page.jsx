@@ -3,12 +3,15 @@
 "use client";
 
 import { useState } from 'react';
+import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 import toast, { Toaster } from 'react-hot-toast';
 
 export default function ProviderLoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const router = useRouter();
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -16,25 +19,26 @@ export default function ProviderLoginPage() {
         const toastId = toast.loading('Ingresando...');
 
         try {
-            const response = await fetch('/api/portal/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password }),
+            const result = await signIn('credentials', {
+                redirect: false, // No redirigir automáticamente, para manejar la respuesta
+                email: email,
+                password: password,
             });
 
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Error en el inicio de sesión');
+            if (result.error) {
+                throw new Error(result.error);
             }
 
-            toast.success('¡Inicio de sesión exitoso! Redirigiendo...', { id: toastId });
-            
-            setTimeout(() => {
-                window.location.href = '/portal/dashboard'; 
-            }, 1500);
-
+            if (result.ok) {
+                toast.success('¡Inicio de sesión exitoso! Redirigiendo...', { id: toastId });
+                // Redirigir al dashboard después de un inicio de sesión exitoso
+                router.push('/portal/dashboard');
+            }
         } catch (error) {
-            toast.error(error.message, { id: toastId });
+            // NextAuth devuelve un error genérico en `result.error` que podemos mostrar.
+            // El mensaje específico se define en la función `authorize`.
+            toast.error(error.message || 'Credenciales inválidas.', { id: toastId });
+        } finally {
             setLoading(false);
         }
     };

@@ -2,15 +2,13 @@
 
 import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
-import jwt from 'jsonwebtoken';
-import { cookies } from 'next/headers';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../../../auth/[...nextauth]/route';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
-
-const JWT_SECRET = process.env.JWT_SECRET_KEY;
 
 /**
  * Rechaza una práctica, cambiando su estado y guardando el motivo.
@@ -24,16 +22,12 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ message: 'El motivo de rechazo es obligatorio.' }, { status: 400 });
     }
 
-    // 1. Verificar la sesión del prestador
-    const cookieStore = cookies();
-    const token = cookieStore.get('provider_token');
-    if (!token) {
+    const session = await getServerSession(authOptions);
+    if (!session || session.user.role !== 'provider') {
       return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
     }
-    const decodedToken = jwt.verify(token.value, JWT_SECRET);
-    const providerId = decodedToken.id;
-
-    // 2. Actualizar el estado y añadir el motivo de rechazo en el campo 'details'
+    const providerId = session.user.id;
+    
     // La función jsonb_build_object crea un objeto JSON que se fusiona con el existente.
     const query = `
       UPDATE authorizations

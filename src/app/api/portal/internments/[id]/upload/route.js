@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { Pool } from 'pg';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { verifyToken } from '@/lib/auth'; // Asumiendo que tienes una función para verificar el token
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../../auth/[...nextauth]/route';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -21,21 +22,14 @@ async function ensureStorageDirectoryExists() {
 }
 
 export async function PATCH(request, { params }) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
+  }
+
   const { id } = params; // ID de la internación
 
-  // 1. Verificar la autenticación del usuario (puedes ajustar esto según tu lógica)
-  const token = request.cookies.get('token')?.value;
-  if (!token) {
-    return NextResponse.json({ message: 'No autenticado' }, { status: 401 });
-  }
-  
   try {
-    // Suponiendo que el token decodificado contiene el id del prestador
-    const decodedToken = verifyToken(token);
-    if (!decodedToken) {
-        throw new Error("Token inválido o expirado");
-    }
-
     const formData = await request.formData();
     const files = formData.getAll('files'); // 'files' debe coincidir con el nombre en el FormData del cliente
     
@@ -94,7 +88,7 @@ export async function PATCH(request, { params }) {
           filename: uniqueFilename,
           originalFilename: originalFilename,
           uploadDate: new Date().toISOString(),
-          uploader: decodedToken.name, // CORREGIDO: Usar 'name' en lugar de 'username'
+          uploader: session.user.name,
         });
       }
 
@@ -118,12 +112,8 @@ export async function PATCH(request, { params }) {
     } finally {
       client.release();
     }
-
   } catch (error) {
     console.error("Error al subir documentación:", error);
-    if (error.message.includes("Token")) {
-      return NextResponse.json({ message: error.message }, { status: 401 });
-    }
     return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
   }
 }
