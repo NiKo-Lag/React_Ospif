@@ -5,6 +5,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { XMarkIcon, LockClosedIcon, PaperClipIcon } from '@heroicons/react/24/solid';
+import { useSession } from "next-auth/react";
+import Timeline from '../internaciones/Timeline';
 
 const calculateAge = (birthDateString) => {
     if (!birthDateString) return '';
@@ -232,6 +234,75 @@ export default function AuthorizationForm({
         return esRelacionDependencia ? { plan: 'PLATINO', color: 'text-green-600' } : { plan: 'BORDO', color: 'text-yellow-600' };
     }, [beneficiary]);
 
+    if (isReadOnly) {
+        return (
+            <div className="p-6 bg-gray-50 max-h-[80vh] overflow-y-auto">
+                <h2 className="text-2xl font-bold text-gray-800 mb-6">Detalle de la Solicitud</h2>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Columna Izquierda: Formulario de solo lectura */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <div className="bg-white p-6 rounded-lg shadow-sm">
+                            <h3 className="text-lg font-semibold text-gray-700 border-b pb-3 mb-4">Información Principal</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600">ID de Solicitud</label>
+                                    <p className="mt-1 text-sm text-gray-900">{initialData.id || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600">Estado</label>
+                                    <p className="mt-1 text-sm text-gray-900">{initialData.status || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600">Fecha de Creación</label>
+                                    <p className="mt-1 text-sm text-gray-900">{initialData.date || 'N/A'}</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-600">Importante</label>
+                                    <p className="mt-1 text-sm text-gray-900">{initialData.isImportant ? 'Sí' : 'No'}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="bg-white p-6 rounded-lg shadow-sm">
+                            <h3 className="text-lg font-semibold text-gray-700 border-b pb-3 mb-4">Detalles</h3>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-600">Práctica/Estudio</label>
+                                <p className="mt-1 text-sm text-gray-900">{initialData.title || 'N/A'}</p>
+                            </div>
+                            <div className="mt-4">
+                                <label className="block text-sm font-medium text-gray-600">Justificación / Resumen Clínico</label>
+                                <p className="mt-1 text-sm text-gray-900 whitespace-pre-wrap">{initialData.details?.justification || 'No se proporcionó justificación.'}</p>
+                            </div>
+                            {initialData.details?.attachmentUrl && (
+                                <div className="mt-4">
+                                    <label className="block text-sm font-medium text-gray-600">Archivo Adjunto</label>
+                                    <a href={initialData.details.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 hover:underline">
+                                        Ver archivo
+                                    </a>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Columna Derecha: Trazabilidad */}
+                    <div className="lg:col-span-1">
+                        <div className="bg-white p-6 rounded-lg shadow-sm h-full">
+                            <h3 className="text-lg font-semibold text-gray-700 border-b pb-3 mb-4">Trazabilidad</h3>
+                            <Timeline events={initialData.details?.events || []} />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex justify-end mt-8">
+                    <button
+                        onClick={closeModal}
+                        className="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
+                    >
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <form onSubmit={initialData ? handleSaveChanges : handleFormSubmit} className="flex flex-col h-full bg-gray-50">

@@ -199,3 +199,21 @@ Este documento sirve como un registro centralizado de todos los bugs identificad
         - Se creará un nuevo endpoint dedicado `GET /api/auditor/authorizations` que devolverá la lista de autorizaciones filtrada específicamente para lo que necesita ver un auditor.
         - Se modificará la página `/autorizaciones` para que detecte el rol del usuario. Si es 'auditor', llamará al nuevo endpoint específico; si es 'admin', seguirá usando el endpoint genérico.
 -   **Resultado:** El error 404 fue diagnosticado y se estableció una ruta clara para su solución definitiva, que implica la creación de un endpoint de API específico para el rol y la adición de lógica condicional en el frontend para consumirlo. 
+
+---
+
+## Bug #14: Cadena de Errores en el Tablero de Autorizaciones del Auditor
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / UI / Base de Datos / Rol de Auditor
+-   **Error Reportado:** Después de solucionar el 404 inicial, el tablero del auditor o bien devolvía un error 500, o cargaba pero no mostraba ningún dato, a pesar de que existían en la base de datos.
+-   **Descripción:** Fue un problema multifactorial que requirió varios pasos de diagnóstico para ser resuelto por completo.
+-   **Causas Raíz (Múltiples):**
+    1.  **Conexión de BD Inconsistente:** El endpoint del auditor (`/api/auditor/authorizations`) intentaba usar un archivo de configuración (`src/lib/db.js`) que estaba configurado para **SQLite**, mientras que el resto de la aplicación usaba **PostgreSQL**. Esto causaba un error 500 porque la sintaxis de la consulta no era compatible.
+    2.  **Error de Tipeo en Consulta SQL:** En varios endpoints, se hacía referencia a la columna `razonSocial` (con 'S' mayúscula), cuando el nombre correcto en la base de datos es `razonsocial` (todo en minúsculas), lo que también provocaba errores 500.
+    3.  **Desfase de Datos (Frontend/Backend):** El endpoint de la API devolvía tipos de autorización como `'Práctica Médica'`, pero el componente del tablero Kanban en el frontend esperaba valores cortos como `'practice'`. Este desfase causaba que, aunque los datos llegaran a la página, no se renderizaran porque no cumplían el criterio del filtro del componente.
+-   **Solución Aplicada (Integral):**
+    1.  **Unificación de la Conexión a la BD:** Se refactorizó por completo `src/lib/db.js` para que exporte una única conexión `Pool` de PostgreSQL para toda la aplicación, eliminando la configuración de SQLite y garantizando consistencia. Todos los endpoints se alinearon para usar esta conexión central.
+    2.  **Corrección de Consultas SQL:** Se revisaron los endpoints de autorizaciones y se corrigió el nombre de la columna a `razonsocial`.
+    3.  **Mapeo de Datos en el Frontend:** En la página `autorizaciones/page.jsx`, se añadió una lógica de transformación de datos. Justo después de recibir los datos de la API, se mapearon para "traducir" los valores del backend (ej. `'Práctica Médica'`) a los valores que el frontend esperaba (ej. `'practice'`).
+-   **Resultado:** Se solucionó de forma definitiva la cadena de errores. El tablero del auditor ahora es robusto, se conecta correctamente a la base de datos, maneja los datos de forma adecuada y los muestra en la interfaz como se esperaba. 

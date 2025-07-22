@@ -3,10 +3,11 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ChevronDownIcon } from '@heroicons/react/24/solid';
+import { PlusIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ChevronDownIcon, ViewColumnsIcon, Bars3Icon } from '@heroicons/react/24/solid';
 import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import { motion, AnimatePresence } from 'framer-motion';
 import KanbanBoard from '@/components/autorizaciones/KanbanBoard';
+import AuthorizationList from '@/components/autorizaciones/AuthorizationList';
 import Modal from '@/components/ui/Modal';
 import AuthorizationForm from '@/components/autorizaciones/AuthorizationForm';
 import HistoryModal from '@/components/autorizaciones/HistoryModal';
@@ -37,6 +38,7 @@ const ALL_KANBAN_COLUMNS = [
 ];
 
 export default function AutorizacionesPage() {
+  const [viewMode, setViewMode] = useState('kanban'); // Estado para la vista
   const [activeTab, setActiveTab] = useState('practice');
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,13 +71,22 @@ export default function AutorizacionesPage() {
       if (!response.ok) throw new Error('No se pudo obtener la información de las autorizaciones.');
       const data = await response.json();
       
-      const formattedData = data.map(item => ({
-        ...item,
-        requestType: item.type, 
-        beneficiary: item.beneficiary, // field name is already 'beneficiary' in the response
-        provider: item.provider_name,
-        date: item.date, // field name is already 'date' in the response
-      }));
+      const formattedData = data.map(item => {
+        let requestType = 'unknown';
+        if (item.type === 'Práctica Médica') {
+          requestType = 'practice';
+        } else if (item.type === 'Internación') {
+          requestType = 'internment';
+        }
+
+        return {
+          ...item,
+          requestType,
+          beneficiary: item.beneficiary, 
+          provider: item.provider_name,
+          date: item.date, 
+        };
+      });
 
       setRequests(formattedData);
     } catch (err) {
@@ -173,6 +184,24 @@ export default function AutorizacionesPage() {
             <p className="text-gray-500 mt-1">Supervisa y gestiona todas las solicitudes médicas e internaciones.</p>
           </div>
           <div className="flex items-center space-x-2 sm:space-x-4 mt-4 md:mt-0">
+            {/* Selector de Vista */}
+            <div className="flex items-center rounded-lg bg-gray-200 p-0.5">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === 'kanban' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}`}
+                title="Vista Kanban"
+              >
+                <ViewColumnsIcon className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white shadow-sm text-indigo-600' : 'text-gray-600 hover:bg-gray-300'}`}
+                title="Vista de Lista"
+              >
+                <Bars3Icon className="w-5 h-5" />
+              </button>
+            </div>
+
             <div className="relative" ref={dropdownRef}>
               <button onClick={() => setIsNewRequestOpen(prev => !prev)} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-sm flex items-center transition-colors">
                 <PlusIcon className="w-5 h-5 mr-2" />
@@ -202,7 +231,11 @@ export default function AutorizacionesPage() {
         </div>
       </div>
       <div className="flex-grow mt-6 overflow-y-auto px-4 sm:px-6">
-        <KanbanBoard requests={displayedRequests} columns={displayedColumns} loading={loading} error={error} searchTerm={debouncedSearchTerm} onViewDetails={handleViewDetails} />
+        {viewMode === 'kanban' ? (
+          <KanbanBoard requests={displayedRequests} columns={displayedColumns} loading={loading} error={error} searchTerm={debouncedSearchTerm} onViewDetails={handleViewDetails} />
+        ) : (
+          <AuthorizationList requests={displayedRequests} loading={loading} error={error} onViewDetails={handleViewDetails} />
+        )}
       </div>
       <Modal isOpen={authFormModalState.isOpen} onClose={handleCloseAuthForm}>
         <AuthorizationForm onSuccess={handleAuthFormSuccess} closeModal={handleCloseAuthForm} isReadOnly={authFormModalState.mode === 'view'} initialData={authFormModalState.data} internmentId={authFormModalState.internmentId} initialBeneficiary={authFormModalState.initialBeneficiary} />

@@ -40,7 +40,15 @@ export async function PATCH(request, { params }) {
             return NextResponse.json({ message: 'Acción no válida.' }, { status: 400 });
         }
 
-        // 2. Actualizar la autorización, devolviendo los datos necesarios para la notificación
+        // 2. Construir el nuevo evento de trazabilidad
+        const newEvent = {
+            date: new Date().toISOString(),
+            description: `El auditor realizó una acción: ${action}.`,
+            // Opcional: añadir comentario del auditor al evento si existe
+            ...(comment && { comment: comment })
+        };
+
+        // 3. Actualizar la autorización, añadiendo el nuevo evento al array 'events'
         const updateQuery = `
             UPDATE authorizations
             SET 
@@ -51,12 +59,15 @@ export async function PATCH(request, { params }) {
                     COALESCE(details, '{}'::jsonb), 
                     '{auditor_comment}', 
                     $3::jsonb
+                ) || jsonb_build_object(
+                    'events', 
+                    COALESCE(details->'events', '[]'::jsonb) || $4::jsonb
                 )
-            WHERE id = $4
+            WHERE id = $5
             RETURNING provider_id, title, internment_id;
         `;
         
-        const values = [newStatus, session.user.id, JSON.stringify(comment || ''), id];
+        const values = [newStatus, session.user.id, JSON.stringify(comment || ''), JSON.stringify(newEvent), id];
         const result = await client.query(updateQuery, values);
 
         if (result.rowCount === 0) {
@@ -66,7 +77,7 @@ export async function PATCH(request, { params }) {
 
         const { provider_id, title, internment_id } = result.rows[0];
 
-        // 3. Crear la notificación para el prestador
+        // 4. Crear la notificación para el prestador
         if (provider_id) {
             const notificationMessage = `El auditor ha realizado una acción (${action}) en la solicitud: "${title}".`;
             const insertNotificationQuery = `

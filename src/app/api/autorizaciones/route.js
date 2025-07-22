@@ -86,6 +86,11 @@ export async function POST(request) {
     const finalDetails = {
       ...details,
       attachmentUrl: attachmentUrl,
+      // Añadir el primer evento de trazabilidad
+      events: [{
+        date: new Date().toISOString(),
+        description: "Solicitud creada.",
+      }]
     };
 
     // --- 2. Actualizamos la consulta para incluir 'internment_id' ---

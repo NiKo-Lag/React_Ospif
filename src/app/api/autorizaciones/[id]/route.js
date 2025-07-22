@@ -1,55 +1,68 @@
 // src/app/api/autorizaciones/[id]/route.js
 
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
-import { getSession } from '@/lib/auth'; // Importamos para verificar permisos
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../../../auth/[...nextauth]/route';
+import { pool } from '@/lib/db';
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-// Endpoint para MODIFICAR campos específicos de una autorización
+/**
+ * Endpoint para MODIFICAR el estado de una autorización y registrarlo en la trazabilidad.
+ */
 export async function PATCH(request, { params }) {
-  // 1. Verificar si el usuario tiene sesión
-  const session = await getSession();
-  if (!session) {
+  const session = await getServerSession(authOptions);
+
+  // 1. Verificar autenticación y rol (ej. admin o auditor pueden cambiar estados)
+  if (!session || !['admin', 'auditor'].includes(session.user.role)) {
     return NextResponse.json({ message: 'Acceso denegado.' }, { status: 403 });
   }
 
-  // (Opcional) podrías verificar si el ROL del usuario tiene permiso para modificar
-  // if(session.role !== 'auditor') { ... }
-
   const { id } = params;
-  const { auditor, providerId, observations } = await request.json();
+  const { status: newStatus } = await request.json();
 
+  if (!newStatus) {
+    return NextResponse.json({ message: 'No se proporcionó un nuevo estado.' }, { status: 400 });
+  }
+
+  const client = await pool.connect();
   try {
-    // Usamos el operador || de JSONB para fusionar los nuevos datos con los existentes
-    // Esto actualiza solo los campos que le pasamos dentro del objeto 'details'
+    await client.query('BEGIN');
+
+    // 2. Crear el nuevo evento de trazabilidad
+    const newEvent = {
+      date: new Date().toISOString(),
+      description: `El estado cambió a '${newStatus}'.`,
+    };
+
+    // 3. Actualizar el estado Y la trazabilidad en una única consulta atómica
     const query = `
       UPDATE authorizations
-      SET details = details || $1::jsonb
-      WHERE id = $2
+      SET 
+        status = $1,
+        details = jsonb_set(
+          COALESCE(details, '{}'::jsonb),
+          '{events}',
+          COALESCE(details->'events', '[]'::jsonb) || $2::jsonb
+        )
+      WHERE id = $3
       RETURNING *;
     `;
 
-    const updatedDetails = JSON.stringify({
-      auditorMedico: auditor,
-      prestadorId: providerId,
-      observations: observations
-    });
-
-    const values = [updatedDetails, id];
-    const result = await pool.query(query, values);
+    const values = [newStatus, JSON.stringify(newEvent), id];
+    const result = await client.query(query, values);
 
     if (result.rowCount === 0) {
+      await client.query('ROLLBACK');
       return NextResponse.json({ message: `Autorización con ID ${id} no encontrada.` }, { status: 404 });
     }
-
+    
+    await client.query('COMMIT');
     return NextResponse.json(result.rows[0]);
 
   } catch (error) {
-    console.error(`Error al modificar autorización ID ${id}:`, error);
+    await client.query('ROLLBACK');
+    console.error(`Error al modificar estado de autorización ID ${id}:`, error);
     return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
+  } finally {
+    client.release();
   }
 }
