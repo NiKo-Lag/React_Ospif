@@ -1,14 +1,9 @@
 // src/app/api/auditor/authorizations/[id]/route.js
 
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../../auth/[...nextauth]/route';
-
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
+import { pool } from '@/lib/db'; // Usar el pool centralizado
 
 // Mapeo de acciones a estados de la base de datos
 const actionToStatusMap = {
@@ -33,6 +28,11 @@ export async function PATCH(request, { params }) {
         await client.query('BEGIN'); // Iniciar transacción
 
         const { id } = params;
+        const numericId = parseInt(id, 10);
+        if (isNaN(numericId)) {
+            return NextResponse.json({ message: 'ID de autorización no válido.' }, { status: 400 });
+        }
+
         const { action, comment } = await request.json();
         const newStatus = actionToStatusMap[action];
 
@@ -48,7 +48,7 @@ export async function PATCH(request, { params }) {
             ...(comment && { comment: comment })
         };
 
-        // 3. Actualizar la autorización, añadiendo el nuevo evento al array 'events'
+        // 3. Actualizar la autorización de forma atómica y segura
         const updateQuery = `
             UPDATE authorizations
             SET 
@@ -56,18 +56,19 @@ export async function PATCH(request, { params }) {
                 auditor_id = $2,
                 audited_at = NOW(),
                 details = jsonb_set(
-                    COALESCE(details, '{}'::jsonb), 
-                    '{auditor_comment}', 
+                    jsonb_set(
+                        COALESCE(details, '{}'::jsonb),
+                        '{events}',
+                        (COALESCE(details->'events', '[]'::jsonb) || $4::jsonb)
+                    ),
+                    '{auditor_comment}',
                     $3::jsonb
-                ) || jsonb_build_object(
-                    'events', 
-                    COALESCE(details->'events', '[]'::jsonb) || $4::jsonb
                 )
             WHERE id = $5
             RETURNING provider_id, title, internment_id;
         `;
         
-        const values = [newStatus, session.user.id, JSON.stringify(comment || ''), JSON.stringify(newEvent), id];
+        const values = [newStatus, session.user.id, JSON.stringify(comment || ''), JSON.stringify(newEvent), numericId];
         const result = await client.query(updateQuery, values);
 
         if (result.rowCount === 0) {
@@ -84,7 +85,7 @@ export async function PATCH(request, { params }) {
                 INSERT INTO notifications (provider_id, internment_id, message, is_read, related_authorization_id)
                 VALUES ($1, $2, $3, FALSE, $4)
             `;
-            await client.query(insertNotificationQuery, [provider_id, internment_id, notificationMessage, id]);
+            await client.query(insertNotificationQuery, [provider_id, internment_id, notificationMessage, numericId]);
         }
         
         await client.query('COMMIT'); // Finalizar transacción

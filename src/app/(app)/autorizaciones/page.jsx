@@ -117,11 +117,23 @@ export default function AutorizacionesPage() {
   }, [requests, activeTab]);
 
   const displayedColumns = useMemo(() => {
-    if (activeTab === 'practice') return ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Activa');
-    if (activeTab === 'internment') return ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Nuevas Solicitudes');
-    if (activeTab === 'medication') return [];
-    return ALL_KANBAN_COLUMNS;
-  }, [activeTab]);
+    let baseColumns = ALL_KANBAN_COLUMNS;
+
+    if (activeTab === 'practice') {
+      baseColumns = ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Activa');
+    } else if (activeTab === 'internment') {
+      baseColumns = ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Nuevas Solicitudes');
+    } else if (activeTab === 'medication') {
+      baseColumns = [];
+    }
+    
+    // Si el usuario es auditor, ocultamos la columna de "Nuevas Solicitudes"
+    if (session?.user?.role === 'auditor') {
+      return baseColumns.filter(col => col.status !== 'Nuevas Solicitudes');
+    }
+
+    return baseColumns;
+  }, [activeTab, session]);
 
   const handleViewDetails = (request) => {
     if (request.requestType === 'internment') {
@@ -238,7 +250,15 @@ export default function AutorizacionesPage() {
         )}
       </div>
       <Modal isOpen={authFormModalState.isOpen} onClose={handleCloseAuthForm}>
-        <AuthorizationForm onSuccess={handleAuthFormSuccess} closeModal={handleCloseAuthForm} isReadOnly={authFormModalState.mode === 'view'} initialData={authFormModalState.data} internmentId={authFormModalState.internmentId} initialBeneficiary={authFormModalState.initialBeneficiary} />
+        <AuthorizationForm 
+          onSuccess={handleAuthFormSuccess} 
+          closeModal={handleCloseAuthForm} 
+          isReadOnly={authFormModalState.mode === 'view'} 
+          initialData={authFormModalState.data} 
+          internmentId={authFormModalState.internmentId} 
+          initialBeneficiary={authFormModalState.initialBeneficiary}
+          userRole={session?.user?.role}
+        />
       </Modal>
       <Modal isOpen={internmentFormModalOpen} onClose={handleCloseInternmentForm}>
           <InternmentForm onSuccess={handleInternmentFormSuccess} closeModal={handleCloseInternmentForm} />

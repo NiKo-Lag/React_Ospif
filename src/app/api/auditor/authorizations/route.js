@@ -13,8 +13,8 @@ export async function GET(req) {
 
     const client = await pool.connect();
     try {
-      // Filtramos por los estados que le interesan al auditor
-      const relevantStatuses = ['En Auditoría', 'Nuevas Solicitudes', 'Pendiente de Auditoría'];
+      // El auditor ahora solo ve lo que está explícitamente en su cola.
+      const relevantStatuses = ['En Auditoría'];
       const query = `
         SELECT 
             a.id, 

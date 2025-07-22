@@ -34,7 +34,8 @@ export default function AuthorizationForm({
     initialData = null, 
     isReadOnly = false, 
     internmentId = null,
-    initialBeneficiary = null 
+    initialBeneficiary = null,
+    userRole = null // Added userRole prop
 }) {
     const [isEditing, setIsEditing] = useState(!isReadOnly);
     const [cuil, setCuil] = useState('');
@@ -57,6 +58,9 @@ export default function AuthorizationForm({
         observations: '', 
         isImportant: false
     });
+
+    const [auditorComment, setAuditorComment] = useState(''); // Added state for auditor comments
+    const [isSubmittingAudit, setIsSubmittingAudit] = useState(false); // Added state for audit submission
 
     const isPracticeSectionUnlocked = useMemo(() => beneficiary?.activo === true, [beneficiary]);
     
@@ -159,6 +163,28 @@ export default function AuthorizationForm({
         }
     };
 
+    const handleAuditAction = async (action) => {
+        setIsSubmittingAudit(true);
+        try {
+            const response = await fetch(`/api/auditor/authorizations/${initialData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action, comment: auditorComment }),
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Error al ${action.toLowerCase()} la solicitud.`);
+            }
+            toast.success(`¡Solicitud ${action.toLowerCase()}a con éxito!`);
+            if(onSuccess) onSuccess();
+        } catch (error) {
+            toast.error(error.message);
+            console.error("Audit action failed:", error);
+        } finally {
+            setIsSubmittingAudit(false);
+        }
+    };
+
     const handleFormSubmit = async (e) => {
         e.preventDefault();
         if (!isPracticeSectionUnlocked) {
@@ -235,6 +261,8 @@ export default function AuthorizationForm({
     }, [beneficiary]);
 
     if (isReadOnly) {
+        const isAuditable = userRole === 'auditor' && ['Nuevas Solicitudes', 'Pendiente de Auditoría', 'En Auditoría', 'Requiere Corrección'].includes(initialData.status);
+
         return (
             <div className="p-6 bg-gray-50 max-h-[80vh] overflow-y-auto">
                 <h2 className="text-2xl font-bold text-gray-800 mb-6">Detalle de la Solicitud</h2>
@@ -290,15 +318,59 @@ export default function AuthorizationForm({
                             <Timeline events={initialData.details?.events || []} />
                         </div>
                     </div>
+                    
+                    {isAuditable && (
+                        <div className="lg:col-span-3">
+                            <div className="bg-white p-6 rounded-lg shadow-sm">
+                                <h3 className="text-lg font-semibold text-gray-700 border-b pb-3 mb-4">Acción de Auditoría</h3>
+                                <div>
+                                    <label htmlFor="auditor_comment" className="block text-sm font-medium text-gray-700">Observaciones del Auditor</label>
+                                    <div className="mt-1">
+                                        <textarea
+                                            rows={4}
+                                            name="auditor_comment"
+                                            id="auditor_comment"
+                                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                            value={auditorComment}
+                                            onChange={(e) => setAuditorComment(e.target.value)}
+                                            placeholder="Añadir un comentario o justificación para la acción..."
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                <div className="flex justify-end mt-8">
-                    <button
-                        onClick={closeModal}
-                        className="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
-                    >
-                        Cerrar
-                    </button>
+                <div className="flex justify-end mt-8 space-x-3">
+                  {isAuditable && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleAuditAction('Rechazar')}
+                        className="px-4 py-2 text-sm font-semibold text-red-600 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50 transition-colors"
+                        disabled={isSubmittingAudit}
+                      >
+                        Rechazar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAuditAction('Devolver')}
+                        className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 transition-colors"
+                        disabled={isSubmittingAudit}
+                      >
+                        Observar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAuditAction('Aprobar')}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 border border-transparent rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
+                        disabled={isSubmittingAudit}
+                      >
+                        Aprobar
+                      </button>
+                    </>
+                  )}
                 </div>
             </div>
         );
