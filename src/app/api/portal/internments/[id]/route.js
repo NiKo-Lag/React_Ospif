@@ -1,57 +1,55 @@
 // src/app/api/portal/internments/[id]/route.js
 
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../../auth/[...nextauth]/route';
+import { pool } from '@/lib/db';
 
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-const JWT_SECRET = process.env.JWT_SECRET_KEY;
-
-/**
- * Obtiene los detalles completos de una internación específica,
- * incluyendo las prácticas asociadas.
- */
 export async function GET(request, { params }) {
+  const { id } = params;
   const session = await getServerSession(authOptions);
   if (!session || !session.user) {
     return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
   }
 
   try {
-    const { id } = params; // ID de la internación
-
-    // Obtener los datos principales de la internación
+    // 1. Obtener datos de la internación
     const internmentQuery = 'SELECT * FROM internments WHERE id = $1';
     const internmentResult = await pool.query(internmentQuery, [id]);
 
     if (internmentResult.rowCount === 0) {
       return NextResponse.json({ message: 'Internación no encontrada.' }, { status: 404 });
     }
-    const internment = internmentResult.rows[0];
+    
+    const internment = { ...internmentResult.rows[0], id: String(internmentResult.rows[0].id) };
 
-    // 3. Obtener las prácticas asociadas
+    // 2. Obtener las prácticas asociadas
     const practicesQuery = 'SELECT id, title, status, created_at FROM authorizations WHERE internment_id = $1 ORDER BY created_at DESC';
     const practicesResult = await pool.query(practicesQuery, [id]);
     
-    // 4. Combinar toda la información
-    // ¡CORRECCIÓN! No desempaquetar 'details'. Añadir 'practices' dentro de 'details'.
+    // --- CÓDIGO CONFLICTIVO COMENTADO ---
+    /*
+    const auditsQuery = `
+      SELECT fa.id, fa.status, fa.visit_date, fa.created_at, requester.name as requester_name, auditor.name as auditor_name
+      FROM field_audits fa
+      LEFT JOIN users requester ON fa.requester_operator_id = requester.id
+      LEFT JOIN users auditor ON fa.assigned_auditor_id = auditor.id
+      WHERE fa.internment_id = $1 
+      ORDER BY fa.created_at DESC
+    `;
+    const auditsResult = await pool.query(auditsQuery, [id]);
+    */
+
+    // 4. Combinar la información
     const details = internment.details || {};
-    details.practices = practicesResult.rows; // Añadimos las prácticas aquí
+    details.practices = practicesResult.rows.map(p => ({ ...p, id: String(p.id) }));
+    // details.field_audits = auditsResult.rows.map(a => ({ ...a, id: String(a.id) }));
 
     const responsePayload = {
       ...internment,
-      details: details, // Enviamos el objeto 'details' completo y enriquecido
+      details: details,
     };
     
-    // Eliminar 'details' del nivel superior si ya lo hemos asignado
-    delete responsePayload.details.details;
-
-
     return NextResponse.json(responsePayload);
 
   } catch (error) {

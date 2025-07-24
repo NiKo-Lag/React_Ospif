@@ -197,179 +197,60 @@ Sin embargo, está severamente afectado por un sistema de autenticación fragmen
     4.  Se eliminó la antigua página de login (`/src/app/portal/login`).
 - **Resultado:** La aplicación ahora tiene un único punto de entrada de autenticación, más limpio, escalable y fácil de mantener.
 
-### Fase 5: Refactorización de Componentes Cliente/Servidor (Completada)
+### Fase 17: Implementación del Rol de Operador y Refinamiento del Flujo de Auditoría (Completada)
 
-- **Problema:** Se detectó un error `Event handlers cannot be passed to Client Component props` al iniciar sesión.
-- **Causa Raíz:** Los layouts, que son Componentes de Servidor, definían localmente el componente `LogoutButton`. Aunque se intentaba marcar como `'use client'`, el hecho de pasar una función (`onClick`) como prop desde un Componente de Servidor a uno de Cliente está prohibido por la arquitectura de React Server Components.
-- **Decisión Arquitectónica:** Separar limpiamente los componentes de cliente de los de servidor.
-- **Acciones Realizadas:**
-    1.  Se creó un nuevo componente reutilizable y explícitamente de cliente en `src/components/ui/LogoutButton.jsx`.
-    2.  Se eliminó la definición local del botón en los layouts de Gestión Interna (`/app/(app)/layout.js`) y de Prestadores (`/app/portal/(main)/layout.jsx`).
-    3.  Ambos layouts ahora importan y utilizan el nuevo componente `LogoutButton`.
-- **Resultado:** Se solucionó el error de renderizado. El código ahora sigue las mejores prácticas para la interoperabilidad entre Componentes de Servidor y de Cliente en Next.js, mejorando la mantenibilidad y claridad de la arquitectura.
-
-### Fase 6: Corrección de Módulos Faltantes (Completada)
-
-- **Problema:** Se detectó un error de compilación `Module not found: Can't resolve '@/lib/date-utils'` al acceder a módulos del portal de prestadores.
-- **Causa Raíz:** Un componente (`InternmentDetailModal`) dependía de un archivo de utilidad (`date-utils.js`) que no existía en el proyecto.
-- **Decisión Arquitectónica:** Crear el archivo de utilidad faltante e implementar la funcionalidad requerida (`calculateBusinessDays`) de una manera robusta y auto-actualizable.
-- **Acciones Realizadas:**
-    1.  Se creó el archivo `src/lib/date-utils.js`.
-    2.  Se implementó una función que consume la API externa `api.argentinadatos.com` para obtener una lista actualizada de los feriados de Argentina.
-    3.  Se implementó la función `calculateBusinessDays` que calcula los días hábiles entre dos fechas, excluyendo fines de semana y los feriados obtenidos de la API.
-    4.  Se añadió un sistema de caché simple para evitar llamadas redundantes a la API de feriados.
-- **Resultado:** Se solucionó el error de compilación. La aplicación ahora cuenta con una utilidad de cálculo de fechas precisa y que no requiere mantenimiento manual de feriados.
-
-### Fase 7: Corrección de Endpoint Olvidado (Completada)
-
-- **Problema:** Se detectó un error `Error: No se pudieron cargar las internaciones` al acceder al panel de internaciones del prestador.
-- **Causa Raíz:** El endpoint de API que alimenta este panel (`/api/portal/internments-panel`) no fue actualizado durante la refactorización masiva a NextAuth y todavía utilizaba la lógica de autenticación manual obsoleta, lo que causaba un fallo de autorización.
-- **Acciones Realizadas:**
-    1.  Se localizó el endpoint en `src/app/api/portal/internments-panel/route.js`.
-    2.  Se refactorizó el endpoint para que utilice `getServerSession` de NextAuth, eliminando la lógica manual de verificación de tokens.
-- **Resultado:** Se solucionó el error de carga de datos. Todos los endpoints conocidos de la aplicación ahora utilizan el sistema de autenticación centralizado de NextAuth, mejorando la consistencia y seguridad.
-
-### Fase 8: Corrección del Módulo "Mis Autorizaciones" (Completada)
-
-- **Problema:** Se detectó un error `Error: No autorizado` al acceder a la página `/portal/my-authorizations`.
-- **Causa Raíz:** Al igual que en casos anteriores, los tres endpoints de API que sustentan este módulo (`GET /`, `PATCH /[id]/confirm`, `PATCH /[id]/reject`) no habían sido actualizados a NextAuth.
-- **Acciones Realizadas:**
-    1.  Se localizaron los tres endpoints afectados dentro de `src/app/api/portal/my-authorizations/`.
-    2.  Se refactorizaron los tres para que utilicen `getServerSession` de NextAuth para una autenticación y autorización seguras y basadas en roles.
-- **Resultado:** Se solucionó el error. Toda la funcionalidad del módulo "Mis Autorizaciones" (ver, confirmar y rechazar) es ahora completamente funcional y está integrada con el sistema de autenticación central.
-
-### Fase 9: Implementación y Evolución de "Solicitud de Presupuestos" (Completada)
-
-- **Requerimiento Inicial:** Añadir la capacidad para que los prestadores soliciten presupuestos para una internación existente.
-- **Proceso de Desarrollo Iterativo:** Esta funcionalidad pasó por varias fases de refinamiento basadas en la retroalimentación sobre la experiencia de usuario (UX) y la interfaz (UI).
-    1.  **Versión 1: Formulario Simple.** Se implementó un formulario básico en un modal. **Problema:** Un gran número de conceptos desbordaba el modal, ocultando los botones de acción.
-    2.  **Versión 2: Wizard Vertical.** Para solucionar el desbordamiento, se refactorizó el formulario a un wizard de 4 pasos. **Problema:** Aunque funcional, el diseño seguía siendo muy vertical y no aprovechaba el espacio horizontal, resultando en una UX poco óptima.
-    3.  **Versión 3 (Final): Wizard Horizontal de Dos Paneles.** Se tomó la decisión de rediseñar completamente la experiencia a un formato más profesional:
-        -   **UI/UX:** Se implementó un diseño de dos paneles dentro de un modal más ancho (`max-w-6xl`). Un panel izquierdo fijo muestra los pasos del wizard, y un panel derecho muestra el contenido del paso activo. El wizard ahora ocupa el 100% del espacio del modal para un look integrado.
-        -   **Funcionalidad del Wizard:** Se refinaron los pasos para incluir cálculo de total en tiempo real, campos de texto condicionales para inclusiones/exclusiones, y un resumen final.
-        -   **Carga de Archivos:** Se añadió la capacidad de adjuntar múltiples archivos directamente en el último paso del wizard, integrando la subida de documentación en el mismo flujo.
-- **Decisión Arquitectónica Clave:** Se priorizó la experiencia de usuario sobre la simplicidad de la implementación inicial. Se decidió que un wizard de dos paneles, aunque más complejo de desarrollar, ofrecía una solución mucho más escalable, profesional e intuitiva. El almacenamiento de eventos y adjuntos se consolidó en el campo `details` (JSONB) de la internación.
+- **Requerimiento:** Introducir un nuevo rol de usuario, `operador`, con permisos para crear y gestionar solicitudes de autorización antes de que pasen a auditoría, y refinar las reglas de negocio sobre cuándo se notifican las acciones de auditoría a los prestadores.
+- **Decisión Arquitectónica:** Se decidió integrar el nuevo rol en los flujos y componentes existentes para mantener la coherencia y reutilizar el código. La lógica de negocio más compleja y específica se centralizó en el backend para garantizar la seguridad y la correcta aplicación de las reglas.
 - **Acciones Técnicas Realizadas:**
-    1.  **Frontend (`BudgetRequestForm.jsx`):** Refactorización completa a un componente con estado que gestiona el paso activo de un wizard de dos paneles, la lógica de navegación, el cálculo de totales y el estado de los archivos a subir.
-    2.  **Backend (`request-budget/route.js`):** Modificación del endpoint para que acepte `multipart/form-data`. Ahora procesa una parte JSON con los datos del formulario y una parte con los archivos, guardando ambos de forma atómica en la base de datos.
-- **Refinamiento de Coherencia (Post-implementación):**
-    - **Estandarización de Nombres:** Se actualizó el backend para que los archivos subidos sigan el formato estándar de la aplicación: `[ID Internación]_[Nombre Beneficiario]_[CUIT Prestador]_[Nº Archivo]`.
-    - **Unificación de Documentación:** Se modificó la lógica para que los archivos del presupuesto no se guarden en un array aislado, sino que se añadan al array principal `documentation` de la internación. Para identificarlos, se les añadió una propiedad `origin: 'budget_request'`.
-    - **Visibilidad en UI:** Se ajustó el modal de detalle de internación para que muestre una etiqueta "Presupuesto" en los documentos que tengan dicha propiedad de origen, manteniendo la trazabilidad.
-- **Resultado:** La funcionalidad de solicitud de presupuestos es ahora una de las más robustas de la aplicación. Ofrece un flujo de trabajo claro, profesional y eficiente, y su gestión de archivos está perfectamente integrada y es coherente con el resto del sistema.
+    1.  **Creación del Rol `operador`:**
+        -   Se actualizó el layout de gestión interna (`/app/(app)/layout.js`) para reconocer el rol `operador`, proporcionándole un menú con acceso al Dashboard y a la página de Autorizaciones.
+        -   Se actualizaron los permisos en los endpoints de la API relevantes (`PATCH /api/autorizaciones/[id]`) para permitir que los operadores realicen acciones específicas, como cambiar el estado de una solicitud.
+    2.  **Implementación del Flujo "Enviar a Auditoría":**
+        -   Se potenció el modal de detalle de la autorización (`AuthorizationForm.jsx`) para que muestre un botón "Enviar a Auditoría" de forma condicional.
+        -   Este botón es visible únicamente para el rol `operador` y solo cuando la solicitud se encuentra en el estado `'Nuevas Solicitudes'`.
+        -   Al hacer clic, el botón llama al endpoint `PATCH /api/autorizaciones/[id]` para cambiar el estado a `'En Auditoría'`, registrando automáticamente el evento en la trazabilidad.
+    3.  **Refinamiento de la Lógica de Notificaciones:**
+        -   Se modificó el endpoint de acciones del auditor (`PATCH /api/auditor/authorizations/[id]`) para implementar una lógica de notificación diferencial y más precisa.
+        -   **Para autorizaciones asociadas a internaciones (`internment_id` no es nulo):** Se notifica al prestador de cualquier acción relevante del auditor (Aprobar, Rechazar, Devolver).
+        -   **Para autorizaciones independientes (`internment_id` es nulo):** Solo se notifica al prestador si la solicitud es **aprobada**, ya que es el único caso que requiere una acción por su parte.
+- **Resultado:** Se ha definido y materializado un nuevo rol de `operador` con un flujo de trabajo claro y seguro dentro del sistema. Además, la lógica de comunicación con el prestador se ha hecho más inteligente y contextual, evitando notificaciones innecesarias y asegurando que la información llegue en el momento preciso, de acuerdo con las reglas de negocio.
 
-### Fase 10: Mejora de Usabilidad en el Modal de Detalles (Completada)
+### Fase 18: Módulo de Auditorías de Terreno (Completada)
 
-- **Requerimiento:** Hacer que el modal de detalle de la internación sea más interactivo, permitiendo a los usuarios ver los detalles de las prácticas y prórrogas asociadas sin salir de la vista principal.
-- **Decisión Arquitectónica:** En lugar de navegar a otras páginas, se decidió utilizar modales anidados (un modal que abre otro modal) para mantener al usuario en el contexto de la internación que está revisando. Esto se logró reutilizando componentes de detalle y formularios existentes.
-- **Acciones Realizadas:**
-    1.  **Integración del Modal de Prórrogas:**
-        -   Se añadió un estado (`selectedProrroga`) al componente `InternmentDetailModal`.
-        -   Cada ítem en la lista del "Historial de Prórrogas" se convirtió en un botón.
-        -   Al hacer clic, se abre un nuevo `Modal` que contiene el componente `ProrrogaDetailModal`, pasándole los datos de la prórroga seleccionada.
-    2.  **Integración del Modal de Prácticas:**
-        -   Se añadió un estado (`selectedPractice`) al mismo componente.
-        -   Cada ítem en la lista de "Prácticas Asociadas" se convirtió en un botón.
-        -   Al hacer clic, se reutiliza el componente `AuthorizationForm` en modo de solo lectura (`isReadOnly={true}`), mostrándolo dentro de un nuevo `Modal` para desplegar los detalles de la práctica.
-- **Resultado:** El modal de detalles de la internación pasó de ser una vista estática a un mini-dashboard interactivo. Los usuarios ahora pueden profundizar en la información relacionada (prórrogas y prácticas) de manera rápida e intuitiva, mejorando significativamente la eficiencia y la experiencia de usuario.
-
-### Fase 11: Implementación del Ciclo de Vida y Estados de Internación (Completada)
-
-- **Requerimiento:** Definir e implementar un ciclo de vida formal para las internaciones, con estados claros y transiciones automáticas y manuales. Esto es crucial para la lógica de negocio, la auditoría y para guiar al usuario en las acciones permitidas.
-- **Decisión Arquitectónica:** Se optó por una solución integral que abarca la base de datos, el backend y el frontend para garantizar la coherencia y robustez del sistema de estados.
-- **Estados Definidos:**
-    -   `INICIADA`: Estado inicial de una internación recién denunciada. Tiene un tiempo de vida limitado.
-    -   `ACTIVA`: La internación ha sido confirmada con una primera solicitud de prórroga y está en curso.
-    -   `OBSERVADA`: Requiere la atención del prestador debido a una observación del equipo de auditoría.
-    -   `INACTIVA`: La internación ha superado las 48 horas hábiles desde su inicio sin acciones por parte del prestador. Requiere intervención administrativa para ser reactivada o finalizada.
-    -   `FINALIZADA`: La internación ha concluido. Es un estado terminal de solo lectura.
+- **Requerimiento:** Implementar una nueva funcionalidad que permita al personal interno solicitar una auditoría presencial (de terreno) para una internación específica, asignarla a un médico auditor y que este último pueda registrar el resultado de su visita.
+- **Decisión Arquitectónica:** Se diseñó un flujo de trabajo de dos fases (solicitud y ejecución) y se crearon nuevas tablas en la base de datos (`field_audits`, `field_audit_documents`) para dar soporte a esta funcionalidad de forma aislada pero relacionada con las internaciones.
 - **Acciones Técnicas Realizadas:**
-    1.  **Base de Datos (Refuerzo de Integridad):**
-        -   Se creó un tipo `ENUM` en PostgreSQL (`internment_status`) con los estados definidos para asegurar que solo valores válidos puedan ser almacenados en la columna `status` de la tabla `internments`.
-        -   Se ejecutó un script de migración para alterar la tabla existente, convirtiendo los valores de texto antiguos (ej. 'Activa') al nuevo tipo `ENUM` y manejando la actualización del valor por defecto de la columna.
-    2.  **Backend (Lógica de Transición Automática):**
-        -   Se creó un nuevo endpoint de cron job en `src/app/api/cron/inactivate-internments/route.js`.
-        -   Este cron se ejecuta periódicamente, busca todas las internaciones en estado `INICIADA` y, utilizando una nueva función de utilidad, calcula las horas hábiles transcurridas desde su creación.
-        -   Si han pasado más de 48 horas hábiles, el estado de la internación cambia automáticamente a `INACTIVA`.
-    3.  **Refactorización y Centralización de Código:**
-        -   Se detectó que la lógica para calcular horas hábiles estaba duplicada entre el nuevo cron y uno existente.
-        -   Se creó una nueva función centralizada, `calculateBusinessHoursSince`, en el módulo de utilidades `src/lib/date-utils.js`.
-        -   Ambos cron jobs (`inactivate-internments` y `finalize-internments`) fueron refactorizados para usar esta única función, eliminando la redundancia y mejorando la mantenibilidad.
-    4.  **Backend (Refuerzo de Seguridad):**
-        -   Se modificaron los endpoints de acciones clave (`request-extension` y `request-budget`) para que, antes de procesar cualquier solicitud, verifiquen el estado actual de la internación en la base de datos.
-        -   Si la internación no está en un estado válido para la acción solicitada (ej. intentar solicitar una prórroga para una internación `FINALIZADA`), el endpoint devuelve un error 403 (Prohibido), impidiendo la acción.
-    5.  **Frontend (Mejora de la Experiencia de Usuario):**
-        -   Se actualizó el modal de detalle de la internación (`InternmentDetailModal.jsx`).
-        -   Se añadió una insignia de estado visualmente clara (`StatusBadge`) en la cabecera del modal.
-        -   Los botones de acción principales ("Solicitar Práctica", "Solicitar Prórroga", "Solicitar Presupuesto") ahora se deshabilitan visualmente si el estado de la internación no permite dichas acciones, proveyendo feedback inmediato al usuario.
-- **Resultado:** La aplicación ahora cuenta con un sistema de estados robusto y coherente. Las transiciones automáticas aseguran el cumplimiento de las reglas de negocio, la seguridad en el backend previene acciones no autorizadas, y la interfaz de usuario informa claramente al prestador sobre el estado actual y las acciones disponibles, mejorando significativamente la usabilidad y la fiabilidad del sistema.
+    1.  **Ampliación del Esquema de la Base de Datos:**
+        -   Se crearon dos nuevas tablas: `field_audits` para almacenar la información de la auditoría (quién solicita, a quién se asigna, estado, etc.) y `field_audit_documents` para futuros adjuntos.
+    2.  **Backend (API para el Flujo Completo):**
+        -   Se creó el endpoint `POST /api/internments/[id]/field-audits` para que un usuario con rol `operador` o `admin` pueda crear una solicitud de auditoría, asignándola a un auditor específico.
+        -   Se creó el endpoint `PUT /api/field-audits/[audit_id]` para que el auditor asignado pueda completar el informe, actualizando el estado de la auditoría y registrando los detalles de la visita (fecha, observaciones, checklist).
+    3.  **Frontend (Integración en la Interfaz Existente):**
+        -   Se modificó el modal de detalle de la internación (`InternmentDetailModal.jsx`) para añadir una nueva sección "Acciones Disponibles", donde los usuarios autorizados ven un botón para "Solicitar Auditoría Terreno".
+        -   Al hacer clic, se abre un nuevo modal con el formulario `FieldAuditRequestForm.jsx`, que permite seleccionar al auditor y añadir un motivo.
+        -   Se añadió una sección "Auditorías de Terreno" en el mismo modal de detalle, que lista todas las auditorías asociadas a esa internación, mostrando su estado (`Pendiente`, `Completada`).
+        -   Si una auditoría está pendiente y el usuario actual es el auditor asignado, se muestra un botón "Completar Informe", que abre el formulario `FieldAuditCompletionForm.jsx`.
+- **Resultado:** La aplicación ahora cuenta con un ciclo de vida completo para las auditorías de terreno. El proceso es claro, trazable y está perfectamente integrado en la vista de detalle de la internación, permitiendo una gestión centralizada de todas las actividades relacionadas sin abandonar el contexto del paciente.
 
-### Fase 12: Auditoría y Endurecimiento del Ciclo de Vida (Completada)
+### Fase 19: Flujo de Envío a Auditoría para Internaciones (Completada)
 
-- **Contexto:** Tras la implementación de los nuevos estados de internación, se detectaron errores en cascada en otras partes de la aplicación que no habían sido actualizadas, revelando la necesidad de una auditoría completa.
-- **Problema Principal:** Varios endpoints y componentes de la interfaz de usuario seguían utilizando los valores de estado antiguos (ej. `'Activa'`), lo que provocaba fallos de inserción en la base de datos (que ahora usaba un `ENUM` estricto) y errores de visualización en el frontend.
-- **Acciones Correctivas Realizadas:**
-    1.  **Auditoría de Endpoints:** Se realizó una revisión exhaustiva de todos los endpoints de la API bajo `src/app/api/portal/internments/`.
-    2.  **Corrección del Endpoint de Creación:** Se modificó `internments/route.js` para que las nuevas internaciones se creen con el estado `INICIADA` en lugar de `'Activa'`.
-    3.  **Corrección del Endpoint de Finalización:** Se modificó `internments/[id]/finalize/route.js` para que actualice el estado a `FINALIZADA` (en mayúsculas) y se añadió una capa de seguridad para permitir la finalización solo si el estado actual es `ACTIVA`.
-    4.  **Corrección del Panel de Internaciones (Frontend):** Se actualizó el componente en `internments-panel/page.jsx` para solucionar el problema de que no se mostraban las internaciones.
-        -   **Lógica de Filtrado:** Se ajustó el filtro de las pestañas. La pestaña "Activas" ahora muestra todas las internaciones cuyo estado *no sea* `FINALIZADA`.
-        -   **Insignias de Estado (`StatusBadge`):** Se añadieron los nuevos estados al componente para que se rendericen con los colores e iconos correctos, proporcionando una representación visual precisa del estado real de la internación.
-- **Resultado:** La auditoría y las correcciones subsecuentes han sincronizado toda la aplicación con el nuevo sistema de estados. Se han eliminado las inconsistencias entre el frontend, el backend y la base de datos, resultando en una funcionalidad estable y predecible en todo el flujo de gestión de internaciones.
-
-### Fase 13: Panel de Acciones Pendientes en el Dashboard (Completada)
-
-- **Requerimiento:** Crear una sección proactiva en el dashboard principal (`/portal/dashboard`) que alerte a los prestadores sobre las internaciones recién creadas que requieren una acción inminente (solicitar una prórroga) antes de que venza el plazo de 48 horas hábiles.
-- **Decisión Arquitectónica:** Se decidió implementar una solución completa que abarcara el backend y el frontend. El backend se encargaría de calcular la fecha límite exacta para cada internación pendiente, y el frontend se encargaría de mostrar esta información de manera clara y con una cuenta regresiva en tiempo real.
+- **Requerimiento:** Crear un mecanismo para que el personal interno (rol `operador` o `admin`) pueda iniciar formalmente el proceso de auditoría para una internación que se encuentra en estado `INICIADA`.
+- **Problema Detectado:** El sistema solo contemplaba que una auditoría se iniciara como consecuencia de una acción del prestador (ej. solicitar prórroga), pero no existía una vía para que el equipo interno disparara este proceso proactivamente.
+- **Decisión Arquitectónica:** Se decidió implementar un flujo que es coherente con el resto de la aplicación: la acción del operador debe crear una `autorización` vinculada a la `internación`. Esta nueva autorización será el vehículo para el proceso de auditoría, centralizando la lógica en el módulo de autorizaciones ya existente.
 - **Acciones Técnicas Realizadas:**
-    1.  **Backend (Cálculo de Fechas Límite):**
-        -   Se extendió el módulo de utilidades `src/lib/date-utils.js` con una nueva función, `calculateBusinessDeadline`, capaz de calcular la fecha y hora exactas de vencimiento sumando un número determinado de horas hábiles a una fecha de inicio.
-        -   Se refactorizó el endpoint del dashboard (`/api/dashboard/route.js`) para que, al obtener la lista de internaciones, identifique aquellas con estado `INICIADA` y utilice la nueva utilidad para calcular su `deadline` de 48 horas, enriqueciendo el objeto de datos que se envía al frontend.
-    2.  **Frontend (Implementación de la UI):**
-        -   Se modificó la página del dashboard (`/portal/(main)/dashboard/page.jsx`) para que sea un componente de cliente que obtiene sus datos del endpoint `/api/dashboard`.
-        -   Se crearon dos nuevos sub-componentes:
-            -   `PendingActionsPanel`: Un contenedor que filtra los datos recibidos para encontrar las internaciones pendientes y las renderiza en una sección titulada "Internaciones que requieren atención".
-            -   `CountdownTimer`: Un cronómetro que recibe la fecha límite y muestra una cuenta regresiva en tiempo real (días, horas, minutos, segundos). Si el plazo vence, muestra un mensaje claro de "Plazo Vencido".
-    3.  **Refinamiento y Corrección de Errores:**
-        -   Se corrigió la ubicación del panel, moviéndolo a la parte inferior del dashboard según la solicitud.
-        -   Se ajustó el contenido de las tarjetas para incluir más información del beneficiario (CUIL, fecha de ingreso).
-        -   Se depuraron y corrigieron varios errores en el proceso, incluyendo una consulta SQL incorrecta en el endpoint del dashboard que inicialmente devolvía un array vacío.
-- **Resultado:** El dashboard principal ahora es más inteligente y útil. Proporciona a los prestadores una visión clara e inmediata de las tareas urgentes, con una cuenta regresiva que crea un sentido de urgencia y ayuda a prevenir que las internaciones se inactiven por descuido. La funcionalidad está encapsulada, es reutilizable y mejora significativamente la experiencia de usuario.
-
-### Fase 14: Implementación de Notificaciones de Auditoría (Completada)
-
-- **Requerimiento:** Mejorar la comunicación entre auditores y prestadores, notificando automáticamente a estos últimos cuando una de sus solicitudes (práctica, prórroga, presupuesto, etc.) sea auditada.
-- **Decisión Arquitectónica:** La forma más eficiente y robusta de implementar esto fue integrar la creación de notificaciones directamente en el endpoint de la API que ya utilizan los auditores para procesar las solicitudes. Se decidió usar una transacción de base de datos para garantizar la atomicidad de la operación (la auditoría y la notificación ocurren juntas o ninguna ocurre).
-- **Acciones Técnicas Realizadas:**
-    1.  **Modificación del Endpoint del Auditor:**
-        -   Se refactorizó el endpoint `PATCH /api/auditor/authorizations/[id]` para utilizar un cliente de base de datos y envolver toda la lógica en una transacción (`BEGIN`, `COMMIT`, `ROLLBACK`).
-        -   Después de que la autorización se actualiza con éxito en la base de datos, se añadió una nueva sentencia `INSERT` que crea una fila en la tabla `notifications`.
-        -   El mensaje de la notificación es dinámico y claro, informando al prestador qué solicitud fue afectada y qué acción se tomó (ej: "El auditor ha realizado una acción (Devolver) en la solicitud: 'Prórroga por 5 días'").
-    2.  **Mejora del Esquema de la Base de Datos:**
-        -   Se identificó la oportunidad de hacer las notificaciones más potentes. Se creó un script de migración SQL para añadir una nueva columna `related_authorization_id` a la tabla `notifications`.
-        -   Esta columna tiene una clave foránea (`FOREIGN KEY`) que apunta directamente a la autorización correspondiente.
-        -   **Beneficio a Futuro:** Esto permitirá que, al hacer clic en una notificación, la interfaz pueda llevar al usuario directamente a la página de detalles de la solicitud que la originó, mejorando drásticamente el flujo de trabajo.
-- **Resultado:** El sistema ahora cierra el ciclo de comunicación de la auditoría. Los prestadores son notificados en tiempo real sobre las decisiones que afectan sus solicitudes, lo que agiliza los tiempos de respuesta y mejora la eficiencia general del proceso de autorización. La base de datos está preparada para futuras mejoras en la experiencia de usuario del panel de notificaciones.
-
-### Fase 15: Chat de Observaciones en Tiempo Real (Completada)
-
-- **Requerimiento:** Crear un sistema de comunicación directa y contextual dentro del detalle de cada internación, permitiendo a los prestadores y al personal de la OS intercambiar mensajes, hacer preguntas y dejar constancia de las conversaciones.
-- **Decisión Arquitectónica:** Se optó por un enfoque de "Single Page App" dentro del modal. Se creó un nuevo componente de chat que maneja su propio estado y lógica de comunicación con una API dedicada, sin necesidad de recargar el modal completo. Los mensajes se almacenan en un array dentro del campo `details` (JSONB) de la internación.
-- **Acciones Técnicas Realizadas:**
-    1.  **Backend (API de Observaciones):**
-        -   Se creó un nuevo endpoint dedicado en `POST /api/portal/internments/[id]/add-observation`.
-        -   Este endpoint recibe un mensaje de texto y opcionalmente un ID de mensaje al que se responde (`replyTo`).
-        -   Dentro de una transacción, obtiene el array de observaciones existente, añade la nueva observación (incluyendo datos del autor desde la sesión, timestamp, etc.), y actualiza el campo `details` de la internación.
-        -   Devuelve el array completo y actualizado de observaciones para que el frontend pueda refrescar su estado.
-    2.  **Frontend (Componente de Chat):**
-        -   Se creó un nuevo componente `ObservationsChat` dentro de `InternmentDetailModal.jsx`.
-        -   **Renderizado:** Muestra cada observación como una "burbuja de chat", alineada a la derecha para los mensajes propios y a la izquierda para los de otros usuarios. Muestra el avatar (o iniciales), nombre del autor, hora del mensaje y contenido.
-        -   **Envío de Mensajes:** Incluye un campo de texto y un botón de envío que llaman al nuevo endpoint de la API. Gestiona un estado de carga para dar feedback al usuario.
-        -   **Funcionalidad de Respuesta:** Permite hacer clic en un botón "Responder" en los mensajes de otros, lo que adjunta una vista previa del mensaje original a la nueva respuesta, tanto visualmente como en los datos enviados a la API.
-    3.  **Integración y Maquetación:**
-        -   El componente `ObservationsChat` se integró en el modal de detalle de la internación.
-        -   Tras varios ajustes, se ubicó en la columna lateral izquierda, debajo de la sección de "Documentación Adjunta", para una mejor organización del espacio.
-- **Resultado:** La aplicación ahora cuenta con una potente herramienta de comunicación contextual. Se eliminó la necesidad de comunicación informal por fuera del sistema (emails, llamados). Todas las conversaciones importantes quedan registradas y asociadas directamente a la internación correspondiente, mejorando la trazabilidad, la transparencia y la eficiencia de la comunicación entre prestadores y el equipo interno.
+    1.  **Backend (Nuevo Endpoint Dedicado):**
+        -   Se creó el endpoint `POST /api/internments/[id]/send-to-audit`.
+        -   Este endpoint realiza una operación atómica (envuelta en una transacción) que:
+            a.  Verifica que el usuario sea `operador` o `admin`.
+            b.  Valida que la internación esté en estado `INICIADA`.
+            c.  Crea un nuevo registro en la tabla `authorizations` de tipo "Internación", con estado `'En Auditoría'` y con los datos relevantes de la internación.
+            d.  Actualiza el estado de la `internment` original a `'EN AUDITORIA'`.
+    2.  **Frontend (Integración en la Interfaz de Operador):**
+        -   Se modificó el modal de detalle de la internación (`InternmentDetailModal.jsx`).
+        -   Se añadió un nuevo botón, "Enviar a Auditoría", en la sección de "Acciones Disponibles".
+        -   Este botón es visible únicamente para los roles `operador` y `admin`, y solo cuando la internación se encuentra en estado `INICIADA`.
+        -   Al hacer clic, el botón llama al nuevo endpoint, proporcionando feedback visual al usuario (estado de carga) y mostrando una notificación de éxito o error.
+- **Resultado:** Se ha cerrado una brecha importante en el flujo de trabajo. El personal interno ahora tiene el control total para iniciar el proceso de auditoría de una internación en el momento oportuno, siguiendo un patrón de diseño consistente que aumenta la trazabilidad y reutiliza la lógica de negocio existente.
 
 ---
 ## 6. Esquema de la Base de Datos (PostgreSQL)

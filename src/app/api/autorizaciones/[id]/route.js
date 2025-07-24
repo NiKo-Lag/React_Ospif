@@ -2,7 +2,7 @@
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../auth/[...nextauth]/route';
+import { authOptions } from '../../auth/[...nextauth]/route';
 import { pool } from '@/lib/db';
 
 /**
@@ -11,8 +11,8 @@ import { pool } from '@/lib/db';
 export async function PATCH(request, { params }) {
   const session = await getServerSession(authOptions);
 
-  // 1. Verificar autenticación y rol (ej. admin o auditor pueden cambiar estados)
-  if (!session || !['admin', 'auditor'].includes(session.user.role)) {
+  // 1. Verificar autenticación y rol (admin, auditor u operador pueden cambiar estados)
+  if (!session || !['admin', 'auditor', 'operador'].includes(session.user.role)) {
     return NextResponse.json({ message: 'Acceso denegado.' }, { status: 403 });
   }
 

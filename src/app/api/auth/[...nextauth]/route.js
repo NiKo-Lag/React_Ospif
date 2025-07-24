@@ -25,14 +25,14 @@ export const authOptions = {
 
         const client = await pool.connect();
         try {
-          // Primero, intentar encontrar al usuario en la tabla de prestadores
-          let userQuery = 'SELECT id, email, razonsocial as name, password, \'provider\' as role FROM prestadores WHERE email = $1';
+          // Primero, buscar en la tabla de usuarios internos (operadores, admin, auditores)
+          let userQuery = 'SELECT id, name, role, email, password FROM users WHERE email = $1';
           let result = await client.query(userQuery, [credentials.email]);
           let user = result.rows[0];
 
-          // Si no se encuentra como prestador, buscar en la tabla de usuarios internos (auditores, admin)
+          // Si no se encuentra como usuario interno, buscar en la tabla de prestadores
           if (!user) {
-            userQuery = 'SELECT id, name, role, email, password FROM users WHERE email = $1';
+            userQuery = 'SELECT id, email, razonsocial as name, password, \'provider\' as role FROM prestadores WHERE email = $1';
             result = await client.query(userQuery, [credentials.email]);
             user = result.rows[0];
           }
@@ -55,7 +55,7 @@ export const authOptions = {
             role: user.role,
           };
         } catch (error) {
-          // Lanzamos un error genérico para no exponer detalles
+          console.error("Authentication Error:", error.message);
           throw new Error('Error de autenticación. Verifique sus credenciales.');
         } finally {
           client.release();

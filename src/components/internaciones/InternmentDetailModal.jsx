@@ -9,11 +9,13 @@ import toast from 'react-hot-toast';
 import Modal from '@/components/ui/Modal'; // RUTA CORREGIDA
 import BudgetRequestForm from './BudgetRequestForm'; // Importar el formulario de presupuesto
 import Timeline from './Timeline';
-import { calculateBusinessDays } from '@/lib/date-utils';
+import { calculateBusinessDays } from '@/lib/date-utils'; // <-- CORRECCIÓN DE LA IMPORTACIÓN
 import ProrrogaDetailModal from './ProrrogaDetailModal'; // Importar el modal de detalle de prórroga
 import AuthorizationForm from '@/components/autorizaciones/AuthorizationForm'; // Importar el formulario de autorización
 import BudgetDetailModal from './BudgetDetailModal'; // Importar el nuevo modal de detalle de presupuesto
-import { PaperAirplaneIcon, ReplyIcon } from '@heroicons/react/24/solid';
+import { PaperAirplaneIcon, ArrowUturnLeftIcon, ShareIcon } from '@heroicons/react/24/solid'; // Añadir ShareIcon
+import FieldAuditRequestForm from './FieldAuditRequestForm'; // <-- 1. Importar el nuevo formulario
+import FieldAuditCompletionForm from './FieldAuditCompletionForm'; // <-- 1. Importar
 
 const DetailField = ({ icon: Icon, label, value }) => (
     <div>
@@ -45,6 +47,7 @@ const StatusBadge = ({ status }) => {
         OBSERVADA: 'bg-yellow-100 text-yellow-800',
         INACTIVA: 'bg-gray-100 text-gray-800',
         FINALIZADA: 'bg-red-100 text-red-800',
+        'EN AUDITORIA': 'bg-purple-100 text-purple-800',
         default: 'bg-gray-100 text-gray-800',
     };
     const style = statusStyles[status] || statusStyles.default;
@@ -116,7 +119,7 @@ const ObservationsChat = ({ internmentId, initialObservations = [] }) => {
                                 <p className="mt-1">{obs.message}</p>
                                 {!isOwnMessage && (
                                     <button onClick={() => setReplyTo(obs)} className={`mt-1 text-xs font-semibold flex items-center gap-1 ${isOwnMessage ? 'text-indigo-200 hover:text-white' : 'text-gray-500 hover:text-gray-800'}`}>
-                                        <ReplyIcon className="w-3 h-3"/>
+                                        <ArrowUturnLeftIcon className="w-3 h-3"/>
                                         Responder
                                     </button>
                                 )}
@@ -152,15 +155,20 @@ const ObservationsChat = ({ internmentId, initialObservations = [] }) => {
 };
 
 
-// --- 1. Se recibe la nueva prop 'onOpenProrroga' ---
-export default function InternmentDetailModal({ request, onClose, onAttachPractice, onOpenProrroga, userRole }) {
+// --- 1. Se recibe la nueva prop 'onOpenProrroga' y ahora onSuccess
+export default function InternmentDetailModal({ request, onClose, onAttachPractice, onOpenProrroga, userRole, onSuccess }) {
+    const { data: session } = useSession();
     const [details, setDetails] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [isBudgetModalOpen, setIsBudgetModalOpen] = useState(false);
+    const [isAuditRequestModalOpen, setIsAuditRequestModalOpen] = useState(false);
+    const [isAuditCompletionModalOpen, setIsAuditCompletionModalOpen] = useState(false);
+    const [selectedAudit, setSelectedAudit] = useState(null);
     const [selectedProrroga, setSelectedProrroga] = useState(null);
     const [selectedPractice, setSelectedPractice] = useState(null);
     const [selectedBudget, setSelectedBudget] = useState(null);
+    const [isSubmittingAudit, setIsSubmittingAudit] = useState(false);
 
     useEffect(() => {
         if (request?.id) {
@@ -168,14 +176,15 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
                 setLoading(true);
                 setError('');
                 try {
-                    // Determina el endpoint basado en el rol del usuario
-                    const apiEndpoint = userRole === 'auditor'
-                        ? `/api/auditor/internments/${request.id}`
-                        : `/api/portal/internments/${request.id}`;
+                    // --- CORRECCIÓN DEFINITIVA ---
+                    // Se elimina la lógica condicional. Todos los roles usarán el mismo
+                    // endpoint robusto que devuelve los detalles completos de una internación.
+                    const apiEndpoint = `/api/portal/internments/${request.id}`;
 
                     const response = await fetch(apiEndpoint);
                     if (!response.ok) {
-                        throw new Error('No se pudieron cargar los detalles de la internación.');
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || 'No se pudieron cargar los detalles.');
                     }
                     const data = await response.json();
                     setDetails(data);
@@ -188,7 +197,8 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
             };
             fetchDetails();
         }
-    }, [request?.id]);
+    }, [request?.id, userRole]);
+
 
     const timelineEvents = useMemo(() => {
         if (!details) return [];
@@ -205,8 +215,8 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
         if (details.details?.extension_requests) {
             details.details.extension_requests.forEach((ext) => {
                 events.push({
-                    date: ext.requested_at,         // CORRECCIÓN FINAL
-                    description: `Se solicitó prórroga de ${ext.requested_days} días.` // CORRECCIÓN FINAL
+                    date: ext.requested_at,
+                    description: `Se solicitó prórroga de ${ext.requested_days} días.`
                 });
             });
         }
@@ -241,35 +251,84 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
         };
     }, [details]);
 
-    const handleOpenBudgetModal = () => {
-        setIsBudgetModalOpen(true);
+    const handleOpenAuditRequestModal = () => setIsAuditRequestModalOpen(true);
+    const handleCloseAuditRequestModal = () => setIsAuditRequestModalOpen(false);
+    const handleAuditRequestSuccess = () => {
+        handleCloseAuditRequestModal();
+        toast.success('La solicitud de auditoría se ha enviado.');
     };
-
-    const handleCloseBudgetModal = () => {
-        setIsBudgetModalOpen(false);
-    };
-
+    
+    const handleOpenBudgetModal = () => setIsBudgetModalOpen(true);
+    const handleCloseBudgetModal = () => setIsBudgetModalOpen(false);
     const handleBudgetSuccess = () => {
         handleCloseBudgetModal();
-        // Opcional: Recargar detalles o mostrar un toast global
         toast.success('El presupuesto ha sido enviado exitosamente.');
-        // podrías querer refrescar la data aquí si es necesario
     };
 
-    // Extraer los presupuestos del objeto de detalles para facilitar su uso
     const budgetRequests = useMemo(() => {
         return details?.details?.events?.filter(event => event.type === 'budget_request') || [];
     }, [details]);
 
-    // Lógica para deshabilitar botones
     const isActionDisabled = useMemo(() => {
         if (!details) return true;
-        return ['INACTIVA', 'FINALIZADA'].includes(details.status);
+        return ['INACTIVA', 'FINALIZADA', 'EN AUDITORIA'].includes(details.status);
     }, [details]);
     
+    const canSendToAudit = useMemo(() => {
+        if (!session?.user?.role || !details) return false;
+        const canPerformAction = ['admin', 'operador'].includes(session.user.role);
+        return canPerformAction && details.status === 'INICIADA';
+    }, [session, details]);
+
+    const canRequestAudit = useMemo(() => {
+        if (!session?.user?.role) return false;
+        return ['admin', 'operador', 'auditor'].includes(session.user.role);
+    }, [session]);
+
+    const handleSendToAudit = async () => {
+        if (!details) return;
+        setIsSubmittingAudit(true);
+        try {
+            const response = await fetch(`/api/internments/${details.id}/send-to-audit`, {
+                method: 'POST',
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.message || 'Error al enviar a auditoría.');
+            }
+            toast.success(data.message);
+            if (onSuccess) onSuccess();
+            onClose();
+        } catch (error) {
+            toast.error(error.message);
+            console.error("Failed to send to audit:", error);
+        } finally {
+            setIsSubmittingAudit(false);
+        }
+    };
+
     const allowUploadOnly = useMemo(() => {
          if (!details) return false;
          return details.status === 'INACTIVA';
+    }, [details]);
+
+    const handleOpenAuditCompletionModal = (audit) => {
+        setSelectedAudit(audit);
+        setIsAuditCompletionModalOpen(true);
+    };
+
+    const handleCloseAuditCompletionModal = () => {
+        setSelectedAudit(null);
+        setIsAuditCompletionModalOpen(false);
+    };
+    
+    const handleAuditCompletionSuccess = () => {
+        handleCloseAuditCompletionModal();
+        toast.success('El informe de auditoría se ha guardado.');
+    };
+
+    const fieldAudits = useMemo(() => {
+        return details?.details?.field_audits || [];
     }, [details]);
 
 
@@ -368,6 +427,57 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
                                         </dl>
                                     </section>
 
+                                    {/* === SECCIÓN DE ACCIONES === */}
+                                    <section className="p-4 border rounded-lg bg-white">
+                                        <h3 className="font-semibold text-lg mb-4 text-gray-800">Acciones Disponibles</h3>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                                            {/* BOTÓN NUEVO AQUÍ */}
+                                            {canSendToAudit && (
+                                                <ActionButton
+                                                    onClick={handleSendToAudit}
+                                                    icon={ShareIcon}
+                                                    disabled={isSubmittingAudit}
+                                                >
+                                                    {isSubmittingAudit ? 'Enviando...' : 'Enviar a Auditoría'}
+                                                </ActionButton>
+                                            )}
+                                            
+                                            <ActionButton
+                                                onClick={onOpenProrroga}
+                                                icon={PlusCircleIcon}
+                                                disabled={isActionDisabled}
+                                            >
+                                                Solicitar Prórroga
+                                            </ActionButton>
+                                            <ActionButton
+                                                onClick={handleOpenBudgetModal}
+                                                icon={PlusCircleIcon}
+                                                disabled={isActionDisabled}
+                                            >
+                                                Pedir Presupuesto
+                                            </ActionButton>
+                                            <ActionButton
+                                                onClick={() => onAttachPractice(details.id, { cuil: details.beneficiary_cuil, nombre: details.beneficiary_name })}
+                                                icon={PlusCircleIcon}
+                                                disabled={isActionDisabled}
+                                            >
+                                                Adjuntar Práctica
+                                            </ActionButton>
+
+                                            {/* 4. Botón para solicitar auditoría */}
+                                            {canRequestAudit && (
+                                                <ActionButton
+                                                    onClick={handleOpenAuditRequestModal}
+                                                    icon={ClipboardDocumentIcon} // O un ícono más apropiado
+                                                    disabled={isActionDisabled}
+                                                >
+                                                    Solicitar Auditoría Terreno
+                                                </ActionButton>
+                                            )}
+                                        </div>
+                                    </section>
+
+                                    {/* SECCIÓN PRÁCTICAS ASOCIADAS */}
                                     <section className="p-4 border rounded-lg bg-white">
                                         <div className="flex justify-between items-center mb-3">
                                             <h3 className="font-semibold text-lg text-gray-800">Prácticas Asociadas</h3>
@@ -535,6 +645,68 @@ export default function InternmentDetailModal({ request, onClose, onAttachPracti
                     />
                 </Modal>
             )}
+
+            {/* 5. Modal para el formulario de solicitud de auditoría */}
+            {isAuditRequestModalOpen && (
+                <Modal isOpen={isAuditRequestModalOpen} onClose={handleCloseAuditRequestModal}>
+                    <FieldAuditRequestForm
+                        internmentId={request.id}
+                        onSuccess={handleAuditRequestSuccess}
+                        closeModal={handleCloseAuditRequestModal}
+                    />
+                </Modal>
+            )}
+
+            {/* Modal para completar la auditoría */}
+            {isAuditCompletionModalOpen && (
+                <Modal isOpen={isAuditCompletionModalOpen} onClose={handleCloseAuditCompletionModal}>
+                    <FieldAuditCompletionForm
+                        audit={selectedAudit}
+                        onSuccess={handleAuditCompletionSuccess}
+                        closeModal={handleCloseAuditCompletionModal}
+                    />
+                </Modal>
+            )}
+
+            {/* === SECCIÓN AUDITORÍAS DE TERRENO === */}
+            <section className="p-4 border rounded-lg bg-white">
+                <h3 className="font-semibold text-lg mb-4 text-gray-800">Auditorías de Terreno</h3>
+                {fieldAudits.length > 0 ? (
+                    <ul className="divide-y divide-gray-200">
+                        {fieldAudits.map(audit => (
+                            <li key={audit.id} className="py-3 flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-medium text-gray-900">
+                                        Auditor Asignado: {audit.auditor_name || 'N/A'}
+                                    </p>
+                                    <p className="text-sm text-gray-500">
+                                        Solicitada por: {audit.requester_name || 'N/A'} el {new Date(audit.created_at).toLocaleDateString()}
+                                    </p>
+                                </div>
+                                <div className="flex items-center space-x-4">
+                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                                        audit.status === 'Pendiente' ? 'bg-yellow-100 text-yellow-800' :
+                                        audit.status === 'Completada' ? 'bg-green-100 text-green-800' :
+                                        'bg-gray-100 text-gray-800'
+                                    }`}>
+                                        {audit.status}
+                                    </span>
+                                    {session?.user?.id === audit.assigned_auditor_id && audit.status === 'Pendiente' && (
+                                        <button
+                                            onClick={() => handleOpenAuditCompletionModal(audit)}
+                                            className="text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                                        >
+                                            Completar Informe
+                                        </button>
+                                    )}
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-sm text-gray-500 text-center mt-4">No hay auditorías de terreno para esta internación.</p>
+                )}
+            </section>
         </>
     );
 }

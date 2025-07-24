@@ -43,12 +43,14 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Faltan los detalles de la internación.' }, { status: 400 });
     }
 
-    const { beneficiary, formData: internmentData } = JSON.parse(detailsString);
+    const detailsPayload = JSON.parse(detailsString);
+    const { beneficiary, formData: internmentData, provider_id } = detailsPayload;
 
     // Determinar a quién se le asigna la internación.
     // Si el que crea es un 'provider', se le asigna a sí mismo.
-    // Si es otro rol, debe venir en los datos del formulario.
-    const assignedProviderId = creatorRole === 'provider' ? creatorId : internmentData.provider_id;
+    // Si es otro rol (operador/admin), debe venir en los datos del formulario.
+    const assignedProviderId = (creatorRole === 'provider' || creatorRole === 'prestador') ? creatorId : provider_id;
+    
     if (!assignedProviderId) {
         await client.query('ROLLBACK');
         return NextResponse.json({ message: 'No se ha especificado un prestador para la internación.' }, { status: 400 });
@@ -122,18 +124,6 @@ export async function POST(request) {
     
     const result = await client.query(insertQuery, insertValues);
     const createdId = result.rows[0].id;
-
-    // --- Lógica de Notificación ---
-    // Si el creador no es el mismo que el prestador asignado, enviar notificación.
-    if (creatorId !== assignedProviderId) {
-        const notificationMessage = `Se le ha asignado una nueva internación programada para ${beneficiary.nombre}.`;
-        const insertNotificationQuery = `
-            INSERT INTO notifications (provider_id, internment_id, message, is_read)
-            VALUES ($1, $2, $3, FALSE)
-        `;
-        await client.query(insertNotificationQuery, [assignedProviderId, createdId, notificationMessage]);
-    }
-
 
     await client.query('COMMIT');
 

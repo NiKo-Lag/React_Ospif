@@ -1,17 +1,12 @@
 // src/app/api/autorizaciones/route.js
 
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
 import path from 'path';
 import { writeFile, mkdir } from 'fs/promises';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../auth/[...nextauth]/route';
+import { pool } from '@/lib/db'; // Usar el pool centralizado
 
-// --- CONEXIÓN A POSTGRESQL ---
-const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-});
-
-// La función GET no necesita cambios.
 export async function GET() {
   try {
     const query = `
@@ -41,9 +36,14 @@ export async function GET() {
 
 /**
  * Crea una nueva autorización.
- * **FUNCIÓN ACTUALIZADA**
+ * **FUNCIÓN ACTUALIZADA Y REFACTORIZADA**
  */
 export async function POST(request) {
+  const session = await getServerSession(authOptions);
+  if (!session || !session.user) {
+    return NextResponse.json({ message: 'No autenticado.' }, { status: 401 });
+  }
+
   const client = await pool.connect(); // Usar cliente para la transacción
   try {
     await client.query('BEGIN'); // Iniciar transacción
@@ -86,10 +86,10 @@ export async function POST(request) {
     const finalDetails = {
       ...details,
       attachmentUrl: attachmentUrl,
-      // Añadir el primer evento de trazabilidad
+      // Añadir el primer evento de trazabilidad, ahora con el nombre del creador
       events: [{
         date: new Date().toISOString(),
-        description: "Solicitud creada.",
+        description: `Solicitud creada por ${session.user.name}.`,
       }]
     };
 

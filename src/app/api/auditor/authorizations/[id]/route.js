@@ -78,9 +78,25 @@ export async function PATCH(request, { params }) {
 
         const { provider_id, title, internment_id } = result.rows[0];
 
-        // 4. Crear la notificación para el prestador
-        if (provider_id) {
-            const notificationMessage = `El auditor ha realizado una acción (${action}) en la solicitud: "${title}".`;
+        // 4. Lógica de Notificación Diferencial
+        let shouldNotify = false;
+        let notificationMessage = '';
+
+        if (internment_id) {
+            // Caso 1: La autorización ESTÁ asociada a una internación
+            if (action === 'Aprobar' || action === 'Rechazar' || action === 'Devolver') {
+                shouldNotify = true;
+                notificationMessage = `El auditor ha realizado una acción (${action}) en la solicitud "${title}" asociada a una internación.`;
+            }
+        } else {
+            // Caso 2: La autorización NO está asociada a una internación (es independiente)
+            if (action === 'Aprobar') {
+                shouldNotify = true;
+                notificationMessage = `La solicitud de "${title}" ha sido aprobada y está pendiente de su confirmación.`;
+            }
+        }
+
+        if (provider_id && shouldNotify) {
             const insertNotificationQuery = `
                 INSERT INTO notifications (provider_id, internment_id, message, is_read, related_authorization_id)
                 VALUES ($1, $2, $3, FALSE, $4)

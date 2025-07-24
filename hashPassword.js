@@ -23,3 +23,4 @@ bcrypt.hash(password, saltRounds, function(err, hash) {
   console.log(`UPDATE users SET password = '${hash}' WHERE email = 'tu_email@ejemplo.com';`);
 });
 
+

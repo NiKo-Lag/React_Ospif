@@ -185,6 +185,29 @@ export default function AuthorizationForm({
         }
     };
 
+    const handleSendToAudit = async () => {
+        setIsSubmittingAudit(true);
+        try {
+            const response = await fetch(`/api/autorizaciones/${initialData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'En Auditoría' }),
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Error al enviar la solicitud a auditoría.');
+            }
+            toast.success('¡Solicitud enviada a auditoría!');
+            if(onSuccess) onSuccess();
+        } catch (error) {
+            toast.error(error.message);
+            console.error("Send to audit failed:", error);
+        } finally {
+            setIsSubmittingAudit(false);
+        }
+    };
+
+
     const handleFormSubmit = async (e) => {
         e.preventDefault();
         if (!isPracticeSectionUnlocked) {
@@ -261,7 +284,8 @@ export default function AuthorizationForm({
     }, [beneficiary]);
 
     if (isReadOnly) {
-        const isAuditable = userRole === 'auditor' && ['Nuevas Solicitudes', 'Pendiente de Auditoría', 'En Auditoría', 'Requiere Corrección'].includes(initialData.status);
+        const isAuditable = userRole === 'auditor' && ['En Auditoría', 'Requiere Corrección'].includes(initialData.status);
+        const canSendToAudit = userRole === 'operador' && initialData.status === 'Nuevas Solicitudes';
 
         return (
             <div className="p-6 bg-gray-50 max-h-[80vh] overflow-y-auto">
@@ -343,6 +367,17 @@ export default function AuthorizationForm({
                 </div>
 
                 <div className="flex justify-end mt-8 space-x-3">
+                  {/* El botón Cerrar es visible para todos en modo de solo lectura */}
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
+                    disabled={isSubmittingAudit}
+                  >
+                    Cerrar
+                  </button>
+
+                  {/* Botones de acción para el Auditor */}
                   {isAuditable && (
                     <>
                       <button
@@ -370,6 +405,18 @@ export default function AuthorizationForm({
                         Aprobar
                       </button>
                     </>
+                  )}
+
+                  {/* Botón de acción para el Operador */}
+                  {canSendToAudit && (
+                     <button
+                        type="button"
+                        onClick={handleSendToAudit}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 border border-transparent rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
+                        disabled={isSubmittingAudit}
+                      >
+                        Enviar a Auditoría
+                      </button>
                   )}
                 </div>
             </div>

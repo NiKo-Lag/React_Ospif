@@ -1,5 +1,3 @@
-// src/app/(app)/autorizaciones/page.jsx
-
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -11,7 +9,7 @@ import AuthorizationList from '@/components/autorizaciones/AuthorizationList';
 import Modal from '@/components/ui/Modal';
 import AuthorizationForm from '@/components/autorizaciones/AuthorizationForm';
 import HistoryModal from '@/components/autorizaciones/HistoryModal';
-import InternmentForm from '@/components/internaciones/InternmentForm';
+import InternmentNotificationWizard from '@/components/internaciones/InternmentNotificationWizard';
 import InternmentDetailModal from '@/components/internaciones/InternmentDetailModal';
 import toast, { Toaster } from 'react-hot-toast';
 import { useSession } from 'next-auth/react';
@@ -32,18 +30,18 @@ const HeaderButton = ({ children, onClick, title }) => (
 const ALL_KANBAN_COLUMNS = [
   { title: 'Nuevas Solicitudes', status: 'Nuevas Solicitudes' },
   { title: 'En Auditoría', status: 'En Auditoría' },
-  { title: 'Activa', status: 'Activa' },
-  { title: 'Autorizadas', status: 'Autorizadas' },
-  { title: 'Rechazadas', status: 'Rechazadas' },
+  { title: 'Requiere Corrección', status: 'Requiere Corrección' },
+  { title: 'Autorizadas', status: 'Autorizada' },
+  { title: 'Rechazadas', status: 'Rechazada' },
 ];
 
 export default function AutorizacionesPage() {
-  const [viewMode, setViewMode] = useState('kanban'); // Estado para la vista
+  const [viewMode, setViewMode] = useState('kanban');
   const [activeTab, setActiveTab] = useState('practice');
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const { data: session } = useSession(); // Get session
+  const { data: session } = useSession();
   
   const [authFormModalState, setAuthFormModalState] = useState({ 
     isOpen: false, mode: 'new', data: null, internmentId: null, initialBeneficiary: null 
@@ -57,11 +55,10 @@ export default function AutorizacionesPage() {
   const debouncedSearchTerm = useDebounce(useState('')[0], 500);
 
   const fetchData = useCallback(async () => {
-    if (!session) return; // Don't fetch if no session
+    if (!session) return;
 
     setLoading(true);
     
-    // Determine the API endpoint based on user role
     const endpoint = session.user.role === 'auditor' 
       ? '/api/auditor/authorizations' 
       : '/api/autorizaciones';
@@ -95,7 +92,7 @@ export default function AutorizacionesPage() {
     } finally {
       setLoading(false);
     }
-  }, [session]); // Add session to dependency array
+  }, [session]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -117,23 +114,14 @@ export default function AutorizacionesPage() {
   }, [requests, activeTab]);
 
   const displayedColumns = useMemo(() => {
-    let baseColumns = ALL_KANBAN_COLUMNS;
-
-    if (activeTab === 'practice') {
-      baseColumns = ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Activa');
-    } else if (activeTab === 'internment') {
-      baseColumns = ALL_KANBAN_COLUMNS.filter(col => col.status !== 'Nuevas Solicitudes');
-    } else if (activeTab === 'medication') {
-      baseColumns = [];
-    }
+    let columns = [...ALL_KANBAN_COLUMNS];
     
-    // Si el usuario es auditor, ocultamos la columna de "Nuevas Solicitudes"
     if (session?.user?.role === 'auditor') {
-      return baseColumns.filter(col => col.status !== 'Nuevas Solicitudes');
+      columns = columns.filter(col => col.status !== 'Nuevas Solicitudes');
     }
 
-    return baseColumns;
-  }, [activeTab, session]);
+    return columns;
+  }, [requests, session]);
 
   const handleViewDetails = (request) => {
     if (request.requestType === 'internment') {
@@ -147,22 +135,22 @@ export default function AutorizacionesPage() {
     setAuthFormModalState({ isOpen: true, mode: 'new', data: null, internmentId: null, initialBeneficiary: null });
     setIsNewRequestOpen(false);
   };
-  
+
   const handleCloseAuthForm = () => setAuthFormModalState({ isOpen: false, mode: 'new', data: null, internmentId: null, initialBeneficiary: null });
-  
+
   const handleAuthFormSuccess = () => {
     handleCloseAuthForm();
     toast.success('¡Solicitud de práctica guardada!');
     fetchData(); 
   };
-  
+
   const handleOpenInternmentForm = () => {
     setInternmentFormModalOpen(true);
     setIsNewRequestOpen(false);
   };
   
   const handleCloseInternmentForm = () => setInternmentFormModalOpen(false);
-  
+
   const handleInternmentFormSuccess = () => {
       handleCloseInternmentForm();
       toast.success('¡Denuncia de internación guardada!');
@@ -170,7 +158,7 @@ export default function AutorizacionesPage() {
   };
 
   const handleCloseInternmentDetail = () => setInternmentDetailModalState({ isOpen: false, request: null });
-  
+
   const handleAttachPractice = (internmentRequest) => {
     handleCloseInternmentDetail();
     setAuthFormModalState({
@@ -186,6 +174,10 @@ export default function AutorizacionesPage() {
     });
   };
 
+  if (loading || !session) {
+    return <div>Cargando...</div>;
+  }
+
   return (
     <div className="h-full flex flex-col">
       <Toaster position="top-right" />
@@ -196,7 +188,6 @@ export default function AutorizacionesPage() {
             <p className="text-gray-500 mt-1">Supervisa y gestiona todas las solicitudes médicas e internaciones.</p>
           </div>
           <div className="flex items-center space-x-2 sm:space-x-4 mt-4 md:mt-0">
-            {/* Selector de Vista */}
             <div className="flex items-center rounded-lg bg-gray-200 p-0.5">
               <button
                 onClick={() => setViewMode('kanban')}
@@ -247,8 +238,9 @@ export default function AutorizacionesPage() {
           <KanbanBoard requests={displayedRequests} columns={displayedColumns} loading={loading} error={error} searchTerm={debouncedSearchTerm} onViewDetails={handleViewDetails} />
         ) : (
           <AuthorizationList requests={displayedRequests} loading={loading} error={error} onViewDetails={handleViewDetails} />
-        )}
+       )}
       </div>
+
       <Modal isOpen={authFormModalState.isOpen} onClose={handleCloseAuthForm}>
         <AuthorizationForm 
           onSuccess={handleAuthFormSuccess} 
@@ -261,7 +253,11 @@ export default function AutorizacionesPage() {
         />
       </Modal>
       <Modal isOpen={internmentFormModalOpen} onClose={handleCloseInternmentForm}>
-          <InternmentForm onSuccess={handleInternmentFormSuccess} closeModal={handleCloseInternmentForm} />
+          <InternmentNotificationWizard
+            onSuccess={handleInternmentFormSuccess}
+            closeModal={handleCloseInternmentForm}
+            userRole={session?.user?.role}
+          />
       </Modal>
       <Modal isOpen={internmentDetailModalState.isOpen} onClose={handleCloseInternmentDetail}>
         <InternmentDetailModal request={internmentDetailModalState.request} onClose={handleCloseInternmentDetail} onAttachPractice={handleAttachPractice} />

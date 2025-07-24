@@ -8,7 +8,7 @@ import LogoutButton from '@/components/ui/LogoutButton';
 export default async function AppLayout({ children }) {
     const session = await getServerSession(authOptions);
 
-    if (!session || !session.user || !['admin', 'auditor'].includes(session.user.role)) {
+    if (!session || !session.user || !['admin', 'auditor', 'operador'].includes(session.user.role)) {
         redirect('/login');
     }
 
@@ -23,6 +23,11 @@ export default async function AppLayout({ children }) {
             { name: 'Configuración', href: '/settings', icon: Cog6ToothIcon },
         ];
     } else if (user.role === 'auditor') {
+        navigation = [
+            { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+            { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },
+        ];
+    } else if (user.role === 'operador') {
         navigation = [
             { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
             { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },

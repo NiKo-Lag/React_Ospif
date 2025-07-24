@@ -4,18 +4,27 @@ import { StarIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 import { BuildingOffice2Icon } from '@heroicons/react/24/outline';
 
 export default function KanbanCard({ auth, onViewDetails }) {
-  // Se definen los colores específicos para esta tarjeta para asegurar consistencia.
-  const tagColor = 'bg-blue-100 text-blue-800';
-  const borderColor = 'border-blue-300';
+  // --- Lógica de Estilo Condicional ---
+  // Se determina el color y el texto de la etiqueta según el tipo de solicitud.
+  let tagColor, borderColor;
+
+  if (auth.requestType === 'internment') {
+    // Estilos para Internaciones (Rojo Pastel)
+    tagColor = 'bg-red-50 text-red-700';
+    borderColor = 'border-red-300';
+  } else {
+    // Estilos por defecto para Prácticas Médicas (Celeste Pastel)
+    tagColor = 'bg-blue-50 text-blue-700';
+    borderColor = 'border-blue-300';
+  }
 
   return (
-    // --- CORRECCIÓN: Se añade un borde izquierdo con color y se quita el borde genérico ---
     <div className={`bg-white p-4 rounded-lg shadow-sm border-l-4 ${borderColor} hover:shadow-md flex flex-col justify-between`}>
       <div>
         <div className="flex justify-between items-start">
-          {/* --- CORRECCIÓN: Se aplica el color celeste pastel directamente --- */}
+          {/* La etiqueta ahora es dinámica tanto en color como en texto */}
           <span className={`text-xs font-semibold px-2 py-1 rounded-full ${tagColor}`}>
-            Práctica Médica
+            {auth.type} 
           </span>
           <div className="flex items-center space-x-2">
             {auth.isImportant && <StarIcon className="w-4 h-4 text-yellow-500" title="Importante" />}

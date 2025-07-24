@@ -2,9 +2,10 @@
 
 "use client";
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { CheckIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
+import { useSession } from 'next-auth/react';
 // Se elimina la importación problemática de UploadCloudIcon
 
 // Componente para la barra de progreso
@@ -88,13 +89,20 @@ const DropZone = ({ files, setFiles }) => {
 };
 
 
-export default function InternmentNotificationWizard({ onSuccess, closeModal }) {
+export default function InternmentNotificationWizard({ onSuccess, closeModal, userRole }) {
+    const { data: session } = useSession();
     const [currentStep, setCurrentStep] = useState(1);
     const [beneficiarySearch, setBeneficiarySearch] = useState('');
     const [beneficiary, setBeneficiary] = useState(null);
     const [loadingBeneficiary, setLoadingBeneficiary] = useState(false);
     const [files, setFiles] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // Estados para la selección de prestador (para operadores)
+    const [providers, setProviders] = useState([]);
+    const [loadingProviders, setLoadingProviders] = useState(false);
+    const [selectedProvider, setSelectedProvider] = useState('');
+
     const [formData, setFormData] = useState({
         internmentType: 'urgencia',
         admissionDatetime: '',
@@ -107,6 +115,26 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
         clinicalSummary: '',
         additionalComments: '',
     });
+
+    useEffect(() => {
+        // Cargar prestadores solo si el usuario es un operador y la sesión existe
+        if (userRole === 'operador' && session) {
+            const fetchProviders = async () => {
+                setLoadingProviders(true);
+                try {
+                    const response = await fetch('/api/prestadores/all');
+                    if (!response.ok) throw new Error('No se pudieron cargar los prestadores.');
+                    const data = await response.json();
+                    setProviders(data);
+                } catch (error) {
+                    toast.error(error.message);
+                } finally {
+                    setLoadingProviders(false);
+                }
+            };
+            fetchProviders();
+        }
+    }, [userRole, session]);
 
     const stepNames = ["Beneficiario", "Datos del Evento", "Documentación"];
 
@@ -140,25 +168,36 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
 
     const canGoToNextStep = useMemo(() => {
         if (currentStep === 1) return !!beneficiary && beneficiary.activo === true;
-        if (currentStep === 2) return formData.admissionDatetime && formData.admissionReason && formData.attendingDoctor && formData.presumptiveDiagnosis && formData.clinicalSummary;
+        if (currentStep === 2) {
+            const baseConditions = formData.admissionDatetime && formData.admissionReason && formData.attendingDoctor && formData.presumptiveDiagnosis && formData.clinicalSummary;
+            if (userRole === 'operator') {
+                return baseConditions && !!selectedProvider;
+            }
+            return baseConditions;
+        }
         return true;
-    }, [currentStep, beneficiary, formData]);
+    }, [currentStep, beneficiary, formData, userRole, selectedProvider]);
 
     const nextStep = () => {
         if (canGoToNextStep) {
             setCurrentStep(prev => Math.min(prev + 1, stepNames.length));
         } else {
-            toast.error(currentStep === 1 ? 'Debe seleccionar un beneficiario ACTIVO para continuar.' : 'Por favor, complete todos los campos obligatorios para continuar.');
+            let errorMessage = 'Por favor, complete todos los campos obligatorios para continuar.';
+            if (currentStep === 1) {
+                errorMessage = 'Debe seleccionar un beneficiario ACTIVO para continuar.';
+            } else if (currentStep === 2 && userRole === 'operator' && !selectedProvider) {
+                errorMessage = 'Debe seleccionar un prestador para continuar.';
+            }
+            toast.error(errorMessage);
         }
     };
     
     const prevStep = () => setCurrentStep(prev => Math.max(prev - 1, 1));
 
     const handleSubmit = async (e) => {
-        // La 'e' del evento no es necesaria si se llama manualmente
         if (e) e.preventDefault();
         
-        if (!canGoToNextStep) {
+        if (currentStep === 2 && !canGoToNextStep) {
             toast.error('Por favor, complete todos los campos obligatorios del paso 2.');
             return;
         }
@@ -167,7 +206,12 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
         const toastId = toast.loading('Enviando notificación...');
         try {
             const dataToSubmit = new FormData();
-            const detailsPayload = { beneficiary, formData };
+            const detailsPayload = { 
+                beneficiary, 
+                formData,
+                ...(userRole === 'operador' && { provider_id: selectedProvider })
+            };
+
             dataToSubmit.append('details', JSON.stringify(detailsPayload));
             for (const file of files) {
                 dataToSubmit.append('files', file);
@@ -175,7 +219,6 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
             const response = await fetch('/api/portal/internments', { 
                 method: 'POST', 
                 body: dataToSubmit,
-                credentials: 'same-origin', // Aseguramos que se envíe la cookie de autenticación
             });
             if (!response.ok) {
                 const errorData = await response.json();
@@ -195,7 +238,6 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
             <div className="p-8">
                 <ProgressBar currentStep={currentStep} steps={stepNames} />
             </div>
-            {/* El formulario ya no necesita su propio evento onSubmit */}
             <div id="notification-form" className="p-8 pt-0">
                 <div className={currentStep === 1 ? 'block' : 'hidden'}>
                     <h2 className="text-xl font-semibold text-gray-700 mb-6">Paso 1: Buscar y confirmar beneficiario</h2>
@@ -231,6 +273,26 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
                 <div className={currentStep === 2 ? 'block' : 'hidden'}>
                     <h2 className="text-xl font-semibold text-gray-700 mb-6">Paso 2: Completar datos del evento</h2>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                        
+                        {['operador', 'admin'].includes(userRole) && (
+                            <div className="md:col-span-2">
+                                <label htmlFor="provider-select" className="block mb-2 text-sm font-medium text-gray-700">Asignar a Prestador</label>
+                                <select 
+                                    id="provider-select" 
+                                    value={selectedProvider} 
+                                    onChange={(e) => setSelectedProvider(e.target.value)} 
+                                    className="w-full px-4 py-2 border rounded-md"
+                                    disabled={loadingProviders}
+                                    required // Hacemos el campo requerido
+                                >
+                                    <option value="" disabled>{loadingProviders ? 'Cargando...' : 'Seleccione un prestador'}</option>
+                                    {providers.map(provider => (
+                                        <option key={provider.id} value={provider.id}>{provider.razonsocial}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <div>
                             <label className="block mb-2 text-sm font-medium text-gray-700">Carácter</label>
                             <div className="flex space-x-4">
@@ -238,11 +300,23 @@ export default function InternmentNotificationWizard({ onSuccess, closeModal }) 
                                     <input type="radio" name="internmentType" value="urgencia" onChange={handleInputChange} checked={formData.internmentType === 'urgencia'} className="mr-2 text-indigo-600"/>
                                     Urgencia
                                 </label>
-                                <label className="flex items-center p-3 border rounded-md flex-1 cursor-not-allowed bg-gray-100 opacity-60" title="Las internaciones programadas se gestionan internamente por la obra social.">
-                                    <input type="radio" name="internmentType" value="programada" className="mr-2" disabled/>
+                                <label className={`flex items-center p-3 border rounded-md flex-1 transition-colors ${
+                                    ['operador', 'admin'].includes(userRole)
+                                        ? 'cursor-pointer hover:bg-gray-50'
+                                        : 'cursor-not-allowed bg-gray-100 opacity-60'
+                                }`} title={!['operador', 'admin'].includes(userRole) ? "Solo operadores o administradores pueden crear internaciones programadas." : ""}>
+                                    <input
+                                        type="radio"
+                                        name="internmentType"
+                                        value="programada"
+                                        className="mr-2 text-indigo-600"
+                                        disabled={!['operador', 'admin'].includes(userRole)}
+                                        onChange={handleInputChange}
+                                        checked={formData.internmentType === 'programada'}
+                                    />
                                     <span className="flex flex-col">
                                         <span>Programada</span>
-                                        <span className="text-xs text-gray-500">Gestión interna</span>
+                                        {!['operador', 'admin'].includes(userRole) && <span className="text-xs text-gray-500">Gestión interna</span>}
                                     </span>
                                 </label>
                             </div>

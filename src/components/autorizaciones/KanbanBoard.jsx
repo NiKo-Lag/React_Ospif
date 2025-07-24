@@ -2,7 +2,8 @@
 
 import KanbanColumn from './KanbanColumn';
 import KanbanCard from './KanbanCard';
-import InternmentCard from '../internaciones/InternmentCard';
+// InternmentCard ya no es necesario aquí, lo quitamos para más claridad.
+// import InternmentCard from '../internaciones/InternmentCard'; 
 
 // --- NUEVO: Helper para generar la clase de la grilla de forma segura ---
 const getGridColsClass = (count) => {
@@ -39,13 +40,10 @@ const KanbanBoard = ({ requests = [], columns = [], loading, error, searchTerm, 
           {filteredRequests
             .filter(request => request.status === column.status)
             .map(request => {
-              switch (request.requestType) {
-                case 'internment':
-                  return <InternmentCard key={request.id} request={request} onViewDetails={onViewDetails} />;
-                case 'practice':
-                default:
-                  return <KanbanCard key={request.id} auth={request} onViewDetails={onViewDetails} />;
-              }
+              // SIMPLIFICACIÓN: Siempre usamos KanbanCard porque estamos mostrando autorizaciones.
+              // El tipo de autorización ('Internación' o 'Práctica Médica') ya se muestra
+              // dentro de la propia tarjeta.
+              return <KanbanCard key={request.id} auth={request} onViewDetails={onViewDetails} />;
             })}
         </KanbanColumn>
       ))}
