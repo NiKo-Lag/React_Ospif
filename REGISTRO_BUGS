@@ -217,3 +217,86 @@ Este documento sirve como un registro centralizado de todos los bugs identificad
     2.  **Corrección de Consultas SQL:** Se revisaron los endpoints de autorizaciones y se corrigió el nombre de la columna a `razonsocial`.
     3.  **Mapeo de Datos en el Frontend:** En la página `autorizaciones/page.jsx`, se añadió una lógica de transformación de datos. Justo después de recibir los datos de la API, se mapearon para "traducir" los valores del backend (ej. `'Práctica Médica'`) a los valores que el frontend esperaba (ej. `'practice'`).
 -   **Resultado:** Se solucionó de forma definitiva la cadena de errores. El tablero del auditor ahora es robusto, se conecta correctamente a la base de datos, maneja los datos de forma adecuada y los muestra en la interfaz como se esperaba. 
+---
+
+## Bug #15: Regresión Crítica - Error 500 en Portal del Prestador
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Portal de Prestadores / Gestión de Internaciones
+-   **Error Reportado:** Al hacer clic en "Ver Detalles" en una internación desde el portal del prestador, se producía un error 500 que impedía cualquier acción sobre la misma (solicitar prórroga, adjuntar archivos, etc.).
+-   **Descripción:** Una modificación en el backend para añadir una nueva funcionalidad para la gestión interna rompió una funcionalidad crítica existente para los usuarios externos (prestadores).
+-   **Causa Raíz:** El endpoint `GET /api/portal/internments/[id]/route.js` fue modificado para incluir una consulta (`LEFT JOIN`) a la tabla `field_audits`, una nueva tabla para gestionar auditorías de terreno. Sin embargo, esta tabla no existía en todos los entornos o no estaba correctamente migrada, lo que causaba un fallo fatal en la consulta a la base de datos cada vez que el endpoint era llamado.
+-   **Solución Aplicada:**
+    1.  Se identificó la consulta problemática en el endpoint.
+    2.  Se tomó la decisión ejecutiva de **comentar temporalmente** el bloque de código que realizaba el `JOIN` con `field_audits` y que adjuntaba sus resultados al objeto de respuesta.
+    3.  Esta acción aisló el problema y restauró inmediatamente la funcionalidad del endpoint a su estado estable anterior.
+-   **Resultado:** El error 500 fue erradicado, desbloqueando el flujo de trabajo de los prestadores. La funcionalidad de "auditorías de terreno" queda pendiente de una revisión y una estrategia de implementación más segura que no cause regresiones. Este bug subrayó la necesidad de realizar pruebas de regresión más exhaustivas.
+
+---
+
+## Bug #16: Error de Referencia `canRequestAudit is not defined` en Modal de Internación
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / Gestión Interna / Gestión de Internaciones
+-   **Error Reportado:** La aplicación crasheaba con el error `Uncaught ReferenceError: canRequestAudit is not defined` al intentar abrir el modal de detalles de una internación desde el portal de gestión interna (`/autorizaciones`).
+-   **Descripción:** Mientras se depuraba el error 500 del portal de prestadores, se introdujo accidentalmente un segundo bug que afectaba a los usuarios internos.
+-   **Causa Raíz:** Durante una fase de limpieza y refactorización del código en el componente `InternmentDetailModal.jsx`, se eliminó por error el hook `useMemo` que declaraba y calculaba la constante `canRequestAudit`. Esta constante era crucial para la lógica de renderizado condicional de botones de acción dentro del modal. Al no estar definida, la aplicación fallaba al intentar acceder a ella.
+-   **Solución Aplicada:**
+    1.  Se revisó el historial de cambios del archivo `InternmentDetailModal.jsx` para identificar el código faltante.
+    2.  Se reintrodujo el bloque de código `useMemo` completo, que define `canRequestAudit` basándose en el rol del usuario actual obtenido de la sesión (`useSession`).
+-   **Resultado:** El error de referencia fue solucionado, restaurando por completo la funcionalidad del modal de detalles de internación para los usuarios de gestión interna. Este bug destacó la importancia de la revisión de código cuidadosa, especialmente al refactorizar componentes complejos con lógica condicional. 
+---
+
+## Bug #17: Fallo en la Carga de Internaciones para Operador (404 Not Found)
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / UI / Rol de Operador
+-   **Error Reportado:** La página de autorizaciones mostraba un error `No se pudo obtener la información de las autorizaciones` y en la consola del navegador se veía un `404 (Not Found)`.
+-   **Descripción:** Después de apuntar el frontend a un nuevo endpoint para combinar datos, la página dejó de cargar información.
+-   **Causa Raíz:** Fue un error en dos pasos. Primero, el frontend fue modificado para apuntar a un endpoint (`/api/autorizaciones-internas` y luego `/api/autorizaciones/internas`) que **aún no había sido creado** en el backend. Segundo, una vez creado, el nuevo endpoint tenía una **ruta de importación incorrecta** para las `authOptions` de NextAuth, lo que causaba un error de compilación (`Module not found`) en el servidor, que también se manifiesta como un 404 para el cliente.
+-   **Solución Aplicada:**
+    1.  Se creó el archivo de ruta `src/app/api/autorizaciones/internas/route.js`.
+    2.  Se implementó en él la lógica para combinar autorizaciones de prácticas e internaciones.
+    3.  Se corrigió la ruta de importación relativa de `../../../` a `../../` dentro de ese nuevo archivo.
+    4.  Se ajustó la llamada `fetch` en el frontend para que coincidiera con la nueva ruta.
+-   **Resultado:** El error 404 fue resuelto, el backend compiló correctamente y el frontend pudo obtener los datos combinados, haciendo que las internaciones aparecieran en el tablero del operador.
+
+---
+
+## Bug #18: Carga de Datos Defectuosa en Modal de Detalles de Internación
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / UI / Gestión Interna
+-   **Error Reportado:** Al hacer clic para ver el detalle de una internación, el modal se abría pero mostraba información incompleta o incorrecta.
+-   **Descripción:** El modal no estaba obteniendo el conjunto completo de datos necesarios para renderizar la vista de un usuario de gestión interna.
+-   **Causa Raíz:** El componente del modal (`InternmentDetailModal.jsx`) estaba hardcodeado para llamar siempre al endpoint del portal de prestadores (`/api/portal/internments/[id]`). Este endpoint no estaba diseñado para proveer toda la información que un rol de gestión (como `operador` o `auditor`) necesita.
+-   **Solución Aplicada:**
+    1.  Se creó un nuevo endpoint dedicado para la gestión interna en `src/app/api/internments/[id]/route.js`.
+    2.  Se copió y adaptó la lógica del endpoint del portal, asegurándola para los roles internos.
+    3.  Se modificó el `useEffect` dentro de `InternmentDetailModal.jsx` para que detecte el rol del usuario: si es un rol de gestión, llama al nuevo endpoint (`/api/internments/[id]`); de lo contrario, mantiene la llamada al endpoint del portal.
+-   **Resultado:** El modal ahora carga el conjunto de datos correcto y completo según el contexto del usuario, solucionando la carga defectuosa y mejorando la arquitectura al separar las APIs internas de las externas.
+
+---
+
+## Bug #19: Error de Renderizado Visual en Modal de Internación ("Achatado")
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** UI / Componentes
+-   **Error Reportado:** El modal de detalles de la internación se mostraba visualmente colapsado, con un layout "achatado" que lo hacía inutilizable.
+-   **Descripción:** El componente no se renderizaba con las dimensiones y el layout esperados.
+-   **Causa Raíz:** Se trataba de un problema de anidación de componentes. El componente `InternmentDetailModal.jsx`, que está diseñado para ser un modal de página casi completa y autosuficiente, estaba siendo envuelto por el componente genérico `<Modal>` en la página de autorizaciones. Esto forzaba al modal grande a renderizarse dentro de los límites del modal pequeño, rompiendo su estructura.
+-   **Solución Aplicada:**
+    1.  Se modificó `src/app/(app)/autorizaciones/page.jsx`.
+    2.  Se eliminó el componente `<Modal>` que envolvía a `<InternmentDetailModal>`.
+    3.  En su lugar, se implementó una renderización condicional directa: `{internmentDetailModalState.isOpen && <InternmentDetailModal ... />}`.
+-   **Resultado:** El problema de renderizado fue solucionado. El modal de detalles ahora se muestra correctamente, ocupando todo el espacio para el que fue diseñado y con su layout intacto. 
+---
+
+## Bug #20: Error de Renderizado Visual en Modal de Solicitud de Auditoría (Comprimido)
+
+-   **Fecha de Identificación:** (Actual)
+-   **Módulo Afectado:** UI / Gestión de Internaciones
+-   **Error Reportado:** El modal que contiene el formulario para "Solicitar Auditoría de Terreno" se renderiza de forma visualmente comprimida, con un ancho insuficiente que dificulta la interacción del usuario.
+-   **Descripción:** A pesar de múltiples intentos por ajustar el tamaño del componente `<Modal>` contenedor (probando tamaños `lg`, `2xl`, `4xl`) y de modificar los estilos del componente `<FieldAuditRequestForm>` para que sea flexible, el resultado visual no cambia. El formulario no se expande para ocupar el espacio que su contenedor le asigna.
+-   **Causa Raíz (Hipótesis):** Existe un conflicto de estilos persistente o una propiedad de CSS que está limitando el ancho del formulario, la cual no ha sido identificada. La interacción entre el layout del modal genérico y el layout del formulario específico es la causa probable.
+-   **Estado:** **Pendiente de Resolución.** Requiere una revisión más profunda por parte de otro desarrollador. 

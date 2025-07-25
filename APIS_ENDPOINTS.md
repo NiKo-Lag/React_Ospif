@@ -34,6 +34,40 @@ Ruta base: `/api/autorizaciones`
   ]
   ```
 
+#### `GET /api/autorizaciones/internas`
+- **Método:** `GET`
+- **Descripción:** Obtiene una lista combinada de **autorizaciones de prácticas médicas** y de **internaciones en estado 'INICIADA'**. Está diseñado específicamente para alimentar el tablero Kanban de la gestión interna. Normaliza los datos de ambos recursos para que puedan ser consumidos de manera uniforme por el frontend.
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Respuesta:**
+  ```json
+  [
+    {
+      "id": 1752867653780,
+      "date": "22/07/2025",
+      "type": "Práctica Médica",
+      "title": "Consulta Cardiológica",
+      "beneficiary": "Juan Perez",
+      "status": "En Auditoría",
+      "isImportant": false,
+      "provider_name": "Hospital Central",
+      "auditor_name": "Dr. Smith",
+      "requestType": "practice"
+    },
+    {
+      "id": "12345678901234567",
+      "date": "23/07/2025",
+      "type": "Internación",
+      "title": "Denuncia de Internación",
+      "beneficiary": "Maria Lopez",
+      "status": "Nuevas Solicitudes",
+      "isImportant": false,
+      "provider_name": "Clínica del Sol",
+      "auditor_name": null,
+      "requestType": "internment"
+    }
+  ]
+  ```
+
 #### `POST /api/autorizaciones`
 - **Método:** `POST`
 - **Descripción:** Crea una nueva solicitud de autorización. Registra automáticamente el evento "Solicitud creada" en la trazabilidad.
@@ -102,30 +136,53 @@ Ruta base: `/api/internments`
   }
   ```
 
+#### `GET /api/internments/[id]`
+- **Método:** `GET`
+- **Descripción:** Obtiene los detalles completos de una internación específica. **Este endpoint es para uso exclusivo de la gestión interna** (`admin`, `auditor`, `operador`).
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Parámetros de URL:**
+  - `id`: El ID de la internación a consultar.
+- **Respuesta:** Objeto JSON con la información completa de la internación, similar a la respuesta de `GET /api/portal/internments/[id]`.
+
 ### 1.4. Auditorías de Terreno
 
 Ruta base: `/api/internments` y `/api/field-audits`
 
 #### `POST /api/internments/[id]/field-audits`
 - **Método:** `POST`
-- **Descripción:** Permite a un usuario interno (operador/admin) solicitar una nueva auditoría de terreno para una internación específica y asignarla a un médico auditor.
-- **Rol Requerido:** `admin` o `operator`.
+- **Descripción:** Permite a un usuario interno (operador/admin) solicitar una nueva auditoría de terreno para una internación específica y asignarla a un médico auditor. **NUEVO:** Incluye sistema de notificaciones de urgencia con indicadores visuales, notificaciones en plataforma y envío automático de correos electrónicos.
+- **Rol Requerido:** `admin` o `operador`.
 - **Parámetros de URL:**
   - `id`: El ID de la internación para la cual se solicita la auditoría.
-- **Cuerpo (JSON):**
+- **Cuerpo (FormData):**
   ```json
   {
     "assignedAuditorId": 2,
-    "requestReason": "Verificar cumplimiento de protocolo para paciente de alto riesgo."
+    "requestReason": "Verificar cumplimiento de protocolo para paciente de alto riesgo.",
+    "additionalComments": "Comentarios adicionales opcionales",
+    "notifyProviderAfterHours": 48,
+    "scheduledVisitDate": "2024-01-15",
+    "isUrgent": true,
+    "attachments": [File1, File2, ...]
   }
   ```
+- **Funcionalidades de Urgencia:**
+  - **Indicador Visual:** Si `isUrgent` es `true`, la auditoría se mostrará con un ícono de exclamación rojo y fondo rojizo en la interfaz.
+  - **Notificación en Plataforma:** Se crea automáticamente un registro en la tabla `notifications` para el auditor asignado.
+  - **Correo Electrónico:** Se envía un email urgente al auditor con formato HTML profesional.
 - **Respuesta:**
   ```json
   {
     "message": "Solicitud de auditoría de terreno creada con éxito.",
-    "auditId": 123
+    "auditId": 123456789
   }
   ```
+- **Variables de Entorno Requeridas para Email:**
+  - `EMAIL_SERVER_HOST`
+  - `EMAIL_SERVER_PORT`
+  - `EMAIL_SERVER_USER`
+  - `EMAIL_SERVER_PASSWORD`
+  - `EMAIL_FROM`
 
 #### `PUT /api/field-audits/[audit_id]`
 - **Método:** `PUT`
@@ -209,8 +266,8 @@ Ruta base: `/api/portal`
 
 #### `GET /api/portal/internments/[id]`
 - **Método:** `GET`
-- **Descripción:** Obtiene los detalles completos de una internación específica, incluyendo su historial de prácticas asociadas.
-- **Rol Requerido:** Cualquier usuario autenticado.
+- **Descripción:** Obtiene los detalles completos de una internación específica, incluyendo su historial de prácticas asociadas y las auditorías de terreno cuyo período de embargo haya finalizado.
+- **Rol Requerido:** `provider`.
 - **Parámetros de URL:**
   - `id`: El ID de la internación.
 - **Respuesta:** Un objeto JSON con todos los datos de la internación.
@@ -310,6 +367,71 @@ Ruta base: `/api/portal`
 - **Parámetros de URL:**
   - `filename`: El nombre del archivo a obtener.
 - **Respuesta:** El contenido del archivo. 
+
+### 3.3. Compartir Recursos
+
+Endpoints diseñados para generar enlaces públicos y de solo lectura a recursos específicos.
+
+#### `POST /api/share`
+- **Método:** `POST`
+- **Descripción:** Genera (o recupera si ya existe) un token único y seguro para compartir un recurso específico. Es escalable para cualquier tipo de recurso.
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "resourceType": "internment",
+    "resourceId": "1753154462085"
+  }
+  ```
+- **Respuesta:**
+  ```json
+  {
+    "token": "a1b2c3d4-e5f6-7890-1234-567890abcdef"
+  }
+  ```
+
+#### `GET /api/public/share/[token]`
+- **Método:** `GET`
+- **Descripción:** Endpoint público y no autenticado que devuelve los datos de solo lectura de un recurso compartido a partir de su token.
+- **Rol Requerido:** Ninguno (Público).
+- **Parámetros de URL:**
+  - `token`: El token único generado por el endpoint `POST /api/share`.
+- **Respuesta:**
+  ```json
+  {
+    "resourceType": "internment",
+    "data": {
+      "id": "1753154462085",
+      "beneficiary_name": "Juan Perez",
+      "... (resto de los datos de la internación) ..."
+    }
+  }
+  ```
+
+---
+
+## 3.4. Sistema de Correos Electrónicos
+
+### Módulo de Email (`src/lib/email.js`)
+
+#### Función `sendMail(options)`
+- **Descripción:** Función reutilizable para el envío de correos electrónicos a través del servidor SMTP de Donweb.
+- **Parámetros:**
+  ```javascript
+  {
+    to: "destinatario@email.com",
+    subject: "Asunto del correo",
+    text: "Versión en texto plano",
+    html: "<h1>Versión HTML</h1>"
+  }
+  ```
+- **Configuración SMTP:**
+  - **Servidor:** `c2851035.ferozo.com`
+  - **Puerto:** `465` (SSL)
+  - **Cuenta:** `contacto@synapsys.site`
+  - **Seguridad:** Conexión SSL/TLS
+- **Manejo de Errores:** La función no interrumpe el flujo principal si el envío falla, solo registra el error en consola.
+- **Uso Interno:** Utilizada por el endpoint de auditorías urgentes para enviar notificaciones automáticas.
 
 ---
 

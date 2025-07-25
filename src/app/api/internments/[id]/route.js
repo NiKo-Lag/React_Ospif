@@ -1,15 +1,17 @@
-// src/app/api/portal/internments/[id]/route.js
+// src/app/api/internments/[id]/route.js
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../auth/[...nextauth]/route';
+import { authOptions } from '../../auth/[...nextauth]/route';
 import { pool } from '@/lib/db';
 
 export async function GET(request, { params }) {
   const { id } = params;
   const session = await getServerSession(authOptions);
-  if (!session || !session.user) {
-    return NextResponse.json({ message: 'No autorizado.' }, { status: 401 });
+  
+  // Endpoint protegido para roles de gestión interna
+  if (!session || !['admin', 'auditor', 'operador'].includes(session.user.role)) {
+    return NextResponse.json({ message: 'Acceso no autorizado.' }, { status: 403 });
   }
 
   try {
@@ -27,18 +29,13 @@ export async function GET(request, { params }) {
     const practicesQuery = 'SELECT id, title, status, created_at FROM authorizations WHERE internment_id = $1 ORDER BY created_at DESC';
     const practicesResult = await pool.query(practicesQuery, [id]);
     
-    // Reintroducimos la consulta de auditorías con la lógica de visibilidad
+    // Aquí podríamos reactivar la consulta de auditorías de terreno de forma segura en el futuro
     const auditsQuery = `
-      SELECT 
-        fa.id, fa.status, fa.scheduled_visit_date, fa.created_at, u_auditor.name as auditor_name
+      SELECT fa.id, fa.status, fa.scheduled_visit_date, fa.created_at, fa.is_urgent, requester.name as requester_name, auditor.name as auditor_name
       FROM field_audits fa
-      LEFT JOIN users u_auditor ON fa.assigned_auditor_id = u_auditor.id
-      WHERE 
-        fa.internment_id = $1 
-        AND (
-          -- La auditoría es visible si (ahora > fecha_creación + X horas)
-          NOW() AT TIME ZONE 'utc' > fa.created_at + (fa.notify_provider_after_hours * INTERVAL '1 hour')
-        )
+      LEFT JOIN users requester ON fa.requester_operator_id = requester.id
+      LEFT JOIN users auditor ON fa.assigned_auditor_id = auditor.id
+      WHERE fa.internment_id = $1 
       ORDER BY fa.created_at DESC
     `;
     const auditsResult = await pool.query(auditsQuery, [id]);
@@ -56,7 +53,7 @@ export async function GET(request, { params }) {
     return NextResponse.json(responsePayload);
 
   } catch (error) {
-    console.error(`Error al obtener el detalle de la internación ${params.id}:`, error);
+    console.error(`Error al obtener el detalle de la internación ${params.id} (gestión interna):`, error);
     return NextResponse.json({ message: 'Error interno del servidor.' }, { status: 500 });
   }
-}
+} 

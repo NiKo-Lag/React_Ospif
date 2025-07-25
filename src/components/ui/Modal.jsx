@@ -4,12 +4,24 @@
 
 import { motion } from 'framer-motion'; // Importamos framer-motion para animaciones
 
-export default function Modal({ isOpen, onClose, children }) {
+export default function Modal({ isOpen, onClose, children, size = '6xl' }) {
   if (!isOpen) return null;
+
+  const sizeClasses = {
+    sm: 'max-w-sm',   // 4xl
+    md: 'max-w-md',   // 5xl
+    lg: 'max-w-lg',   // 6xl
+    xl: 'max-w-xl',
+    '2xl': 'max-w-2xl',
+    '3xl': 'max-w-3xl',
+    '4xl': 'max-w-4xl',
+    '5xl': 'max-w-5xl',
+    '6xl': 'max-w-6xl'
+  };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center items-center backdrop-blur-md bg-black/30" // CORREGIDO: z-40 a z-50
+      className="fixed inset-0 z-50 flex justify-center items-center backdrop-blur-md bg-black/30"
       onClick={onClose}
     >
       <motion.div
@@ -18,7 +30,7 @@ export default function Modal({ isOpen, onClose, children }) {
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.8 }}
         transition={{ type: "spring", stiffness: 100, damping: 15 }}
-        className="relative bg-white rounded-lg shadow-xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden" // AUMENTADO: max-w-3xl a max-w-6xl
+        className={`relative bg-white rounded-lg shadow-xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col overflow-hidden`}
         style={{
           // Estilos para simular el "vidrio líquido"
           backgroundColor: 'rgba(255, 255, 255, 0.85)', // Fondo ligeramente transparente

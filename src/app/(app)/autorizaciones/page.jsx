@@ -59,13 +59,17 @@ export default function AutorizacionesPage() {
 
     setLoading(true);
     
-    const endpoint = session.user.role === 'auditor' 
-      ? '/api/auditor/authorizations' 
-      : '/api/autorizaciones';
+    // Unificamos el endpoint para todos los roles internos.
+    // Este endpoint ya devuelve los datos correctos y combinados para el tablero.
+    const endpoint = '/api/autorizaciones/internas';
 
     try {
+      console.log(`[DEBUG-FRONTEND] Intentando realizar fetch a la URL: ${endpoint}`);
       const response = await fetch(endpoint);
-      if (!response.ok) throw new Error('No se pudo obtener la información de las autorizaciones.');
+      if (!response.ok) {
+        console.error(`[DEBUG-FRONTEND] La respuesta del servidor no fue OK. Status: ${response.status}, StatusText: ${response.statusText}`);
+        throw new Error('No se pudo obtener la información de las autorizaciones.');
+      }
       const data = await response.json();
       
       const formattedData = data.map(item => {
@@ -87,6 +91,7 @@ export default function AutorizacionesPage() {
 
       setRequests(formattedData);
     } catch (err) {
+      console.error("[DEBUG-FRONTEND] Error capturado en el bloque catch de fetchData:", err);
       setError(err.message);
       toast.error(err.message);
     } finally {
@@ -259,9 +264,14 @@ export default function AutorizacionesPage() {
             userRole={session?.user?.role}
           />
       </Modal>
-      <Modal isOpen={internmentDetailModalState.isOpen} onClose={handleCloseInternmentDetail}>
-        <InternmentDetailModal request={internmentDetailModalState.request} onClose={handleCloseInternmentDetail} onAttachPractice={handleAttachPractice} />
-      </Modal>
+      {internmentDetailModalState.isOpen && (
+        <InternmentDetailModal 
+          request={internmentDetailModalState.request} 
+          onClose={handleCloseInternmentDetail} 
+          onAttachPractice={handleAttachPractice} 
+          onSuccess={fetchData}
+        />
+      )}
     </div>
   );
 }

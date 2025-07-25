@@ -252,6 +252,44 @@ Sin embargo, está severamente afectado por un sistema de autenticación fragmen
         -   Al hacer clic, el botón llama al nuevo endpoint, proporcionando feedback visual al usuario (estado de carga) y mostrando una notificación de éxito o error.
 - **Resultado:** Se ha cerrado una brecha importante en el flujo de trabajo. El personal interno ahora tiene el control total para iniciar el proceso de auditoría de una internación en el momento oportuno, siguiendo un patrón de diseño consistente que aumenta la trazabilidad y reutiliza la lógica de negocio existente.
 
+### Fase 20: Depuración de Regresiones y Estabilización (Completada)
+
+- **Requerimiento:** Solucionar una serie de errores críticos que surgieron tras la implementación de nuevas funcionalidades, los cuales afectaron tanto al portal de prestadores como a la gestión interna.
+- **Problema Detectado:** Una cascada de errores interconectados:
+    1.  **Regresión en Portal de Prestadores:** Los prestadores experimentaban un error 500 al intentar ver los detalles de una internación, bloqueando funcionalidades clave como la solicitud de prórrogas o la subida de documentación.
+    2.  **Error de Referencia en Gestión Interna:** Al mismo tiempo, los operadores internos se encontraban con un error de crasheo (`ReferenceError: canRequestAudit is not defined`) al abrir el mismo modal de detalles de internación.
+- **Proceso de Diagnóstico y Decisión Arquitectónica:**
+    - Se identificó que la **causa raíz del error 500** era una modificación en el endpoint `GET /api/portal/internments/[id]`. En un intento por mostrar las auditorías de terreno, se añadió una consulta a la tabla `field_audits` que no existía en el entorno de producción, causando el fallo de la API. La decisión fue **comentar temporalmente** esta funcionalidad para restaurar el servicio inmediatamente.
+    - Se descubrió que el **`ReferenceError`** fue causado por la eliminación accidental del hook `useMemo` que calculaba la variable `canRequestAudit` durante una limpieza de código en `InternmentDetailModal.jsx`. La decisión fue **restaurar inmediatamente** el código eliminado.
+- **Acciones Técnicas Realizadas:**
+    1.  **Backend (Hotfix Crítico):**
+        -   Se modificó `GET /api/portal/internments/[id]/route.js`.
+        -   Se comentó el bloque de código que realizaba el `LEFT JOIN` con la tabla `field_audits` y que añadía los resultados al objeto de respuesta. Esto estabilizó inmediatamente el portal de prestadores.
+    2.  **Frontend (Restauración de Lógica):**
+        -   Se modificó `src/components/internaciones/InternmentDetailModal.jsx`.
+        -   Se reintrodujo el hook `useMemo` que define la constante `canRequestAudit`, basándose en el rol del usuario de la sesión. Esto corrigió el crash en el portal de gestión interna.
+- **Resultado:** Se estabilizó la aplicación, resolviendo dos bugs críticos que afectaban a diferentes perfiles de usuario. La lección aprendida fue la importancia crítica de las pruebas de regresión exhaustivas, verificando que los cambios en un área (gestión interna) no introduzcan efectos secundarios inesperados en otra (portal de prestadores). La funcionalidad de visualización de auditorías de terreno queda pendiente de una reimplementación segura.
+
+### Fase 21: Funcionalidad Completa del Flujo del Operador (Completada)
+
+- **Requerimiento:** Retomar y solucionar el problema original por el cual un `operador` no podía visualizar ni gestionar las internaciones que creaba.
+- **Proceso de Depuración Iterativo:** Se abordó una cadena de bugs interconectados que impedían la funcionalidad.
+    1.  **Visibilidad en Tablero (Error 404):**
+        -   **Problema:** La página de autorizaciones llamaba a un endpoint (`/api/autorizaciones-internas`) que no existía.
+        -   **Solución:** Se decidió, por organización, crear el endpoint en `GET /api/autorizaciones/internas`. Se implementó la lógica para combinar prácticas e internaciones, y se corrigió el `fetch` del frontend.
+    2.  **Error de Compilación del Backend (`Module not found`):**
+        -   **Problema:** El nuevo endpoint tenía una ruta de importación incorrecta para `authOptions`.
+        -   **Solución:** Se corrigió la ruta relativa de `../../../` a `../../`, permitiendo que el backend compilara.
+    3.  **Carga Defectuosa de Detalles del Modal:**
+        -   **Problema:** Al hacer clic en "Ver Detalle", el modal cargaba datos incorrectos o incompletos.
+        -   **Diagnóstico:** Se descubrió que el modal llamaba a un endpoint del portal de prestadores (`/api/portal/internments/[id]`) en lugar de uno de gestión interna.
+        -   **Solución:** Se creó un nuevo endpoint dedicado y seguro para la gestión interna en `GET /api/internments/[id]` y se actualizó la lógica del modal para usarlo si el usuario es un rol interno.
+    4.  **Error de Renderizado Visual del Modal ("Achatado"):**
+        -   **Problema:** El modal de detalles se mostraba visualmente colapsado.
+        -   **Diagnóstico:** Se identificó que el componente `InternmentDetailModal`, que es un modal de página completa, estaba siendo envuelto incorrectamente por un componente de modal genérico más pequeño.
+        -   **Solución:** Se eliminó el `Modal` genérico contenedor en la página de autorizaciones, permitiendo que el `InternmentDetailModal` se renderizara directamente y ocupara el espacio correcto.
+- **Resultado:** Se ha completado y estabilizado con éxito el flujo de trabajo para el rol de `operador`. El usuario ahora puede crear una internación, verla inmediatamente en el tablero de gestión, abrir sus detalles, y realizar acciones sobre ella, con una experiencia de usuario fluida y sin errores visuales o de datos.
+
 ---
 ## 6. Esquema de la Base de Datos (PostgreSQL)
 
@@ -315,3 +353,62 @@ Esta sección documenta la estructura de las tablas principales de la base de da
 - `message`: TEXT
 - `is_read`: BOOLEAN
 - `created_at`: TIMESTAMP 
+
+### Fase 22: Mejoras de UX y Nuevas Funcionalidades Estratégicas (Completada)
+
+-   **Requerimiento:** Implementar una serie de mejoras en la interfaz de usuario del modal de internaciones y añadir nuevas funcionalidades clave para la gestión interna.
+-   **Decisión Arquitectónica:** Se optó por un enfoque escalable y modular para las nuevas funcionalidades, asegurando que las soluciones no solo resolvieran el problema inmediato, sino que también prepararan la aplicación para futuras expansiones.
+-   **Acciones Técnicas Realizadas:**
+    1.  **Reorganización del Modal de Internaciones:**
+        -   Se eliminó la sección genérica "Acciones Disponibles" para una interfaz más limpia.
+        -   La acción "Adjuntar Documentación" se movió a la sección de "Documentación Adjunta".
+        -   La acción "Solicitar Auditoría In Situ" se reubicó en una nueva sección dedicada, "Auditorías In Situ", mejorando la organización contextual.
+    2.  **Implementación de Enlaces Públicos para Compartir:**
+        -   **Diseño Escalable:** Se creó una nueva tabla central `share_links` en la base de datos. Esta tabla gestiona los enlaces para cualquier tipo de recurso (internaciones, prácticas, etc.), evitando la necesidad de modificar tablas existentes en el futuro.
+        -   **Backend:** Se crearon dos endpoints genéricos: `POST /api/share` para generar los tokens de forma segura, y `GET /api/public/share/[token]` para obtener los datos de forma anónima.
+        -   **Frontend:** Se creó una nueva página pública (`/share/[token]`) que renderiza el recurso compartido en modo de solo lectura, reutilizando los componentes existentes.
+    3.  **Sistema de Modales Flexibles:**
+        -   Se refactorizó el componente `Modal` genérico para aceptar una prop `size`, permitiendo controlar su ancho (`sm`, `md`, `lg`, etc.) desde el componente que lo llama.
+        -   Se aplicó este nuevo sistema para corregir un bug visual donde el formulario de solicitud de auditoría se veía "comprimido".
+    4.  **Implementación de "Período de Embargo" para Auditorías:**
+        -   **Base de Datos:** Se creó desde cero la tabla `field_audits`, incorporando desde el inicio una columna `notify_provider_after_hours` y otros campos para la medición de rendimiento (fechas programadas vs. reales).
+        -   **Frontend:** Se actualizó el formulario de solicitud de auditoría para incluir un campo numérico donde el operador puede especificar el número de horas de retraso.
+        -   **Backend (Lógica de Visibilidad):** Se modificó el endpoint del portal de prestadores (`GET /api/portal/internments/[id]`) para que la consulta SQL filtre y muestre únicamente las auditorías cuyo período de embargo haya finalizado, garantizando que la lógica de negocio resida de forma segura en el servidor.
+
+-   **Resultado:** La aplicación ha ganado funcionalidades estratégicas clave (compartir y embargo de auditorías) construidas sobre una arquitectura robusta y escalable. Además, se han implementado mejoras significativas en la experiencia de usuario, resultando en una interfaz más limpia, organizada y flexible. 
+
+### Fase 23: Sistema de Notificaciones de Urgencia para Auditorías de Terreno (Completada)
+
+-   **Requerimiento:** Implementar un sistema completo de notificaciones para auditorías marcadas como "urgentes", que incluya indicadores visuales, notificaciones en la plataforma y envío automático de correos electrónicos.
+-   **Decisión Arquitectónica:** Se optó por un enfoque multicapa que garantice que las auditorías urgentes sean visibles y notificadas de forma inmediata y efectiva, utilizando tanto la interfaz de usuario como canales de comunicación externos.
+-   **Acciones Técnicas Realizadas:**
+    1.  **Indicadores Visuales en la Interfaz:**
+        -   Se modificó el componente `InternmentDetailModal.jsx` para mostrar auditorías urgentes con un ícono de exclamación rojo (`ExclamationCircleIcon`) junto al nombre del auditor asignado.
+        -   Se añadió un fondo ligeramente rojizo (`bg-red-50`) a las filas de auditorías urgentes en la lista para destacarlas visualmente.
+        -   Se importó el ícono necesario desde Heroicons y se implementó la lógica condicional de renderizado.
+    2.  **Sistema de Correos Electrónicos:**
+        -   **Configuración de Infraestructura:** Se instaló `nodemailer` y se configuró para conectarse al servidor SMTP de Donweb (`c2851035.ferozo.com:465`) usando la cuenta `contacto@synapsys.site`.
+        -   **Módulo Reutilizable:** Se creó `src/lib/email.js` con una función `sendMail()` que maneja el envío de correos de forma segura, incluyendo manejo de errores y logging.
+        -   **Variables de Entorno:** Se configuraron las credenciales SMTP en `.env.local` de forma segura, separando la configuración del código.
+    3.  **Notificaciones en la Plataforma:**
+        -   Se modificó el endpoint `POST /api/internments/[id]/field-audits` para que, cuando una auditoría sea marcada como urgente, se inserte automáticamente un registro en la tabla `notifications`.
+        -   La notificación incluye un mensaje claro indicando la urgencia y un enlace directo a los detalles de la internación.
+    4.  **Integración Completa en el Backend:**
+        -   Se actualizó la API para obtener el email del auditor asignado desde la tabla `users`.
+        -   Se implementó el envío de correos electrónicos con formato HTML profesional, incluyendo:
+            -   Asunto claro: `[URGENTE] Nueva Auditoría de Terreno Asignada`
+            -   Información del beneficiario y ID de internación
+            -   Formato HTML con estilos y estructura clara
+            -   Versión en texto plano como respaldo
+        -   Todo el proceso se ejecuta dentro de transacciones de base de datos para garantizar consistencia.
+    5.  **Pruebas y Validación:**
+        -   Se creó un script de prueba temporal (`test-email.js`) para validar la configuración SMTP.
+        -   Se confirmó el funcionamiento exitoso del envío de correos a través del servidor de Donweb.
+        -   Se eliminó el archivo de prueba tras la validación exitosa.
+
+-   **Resultado:** El sistema ahora cuenta con un mecanismo completo de notificaciones de urgencia que funciona en tres niveles:
+    1.  **Visual:** Las auditorías urgentes se destacan claramente en la interfaz con íconos y colores distintivos.
+    2.  **Plataforma:** Se generan notificaciones automáticas en el sistema interno para el auditor asignado.
+    3.  **Email:** Se envían correos electrónicos inmediatos con información detallada y formato profesional.
+    
+    Esta implementación garantiza que las auditorías urgentes reciban la atención inmediata que requieren, mejorando significativamente la eficiencia del flujo de trabajo y la comunicación entre el equipo interno y los auditores. 
