@@ -130,9 +130,9 @@ export async function GET(request, { params }) {
         id,
         beneficiary_cuil as beneficiary_cuil,
         admission_datetime as date,
-        diagnosis as description,
-        provider_name as provider,
-        status
+        presumptive_diagnosis as description,
+        CAST(notifying_provider_id AS VARCHAR) as provider,
+        CAST(status AS VARCHAR) as status
       FROM internments 
       WHERE beneficiary_cuil = $1
       
@@ -143,11 +143,11 @@ export async function GET(request, { params }) {
         id,
         beneficiary_cuil,
         created_at as date,
-        practice_name as description,
-        provider_name as provider,
-        status
+        title as description,
+        CAST(provider_id AS VARCHAR) as provider,
+        CAST(status AS VARCHAR) as status
       FROM authorizations 
-      WHERE beneficiary_cuil = $1 AND type = 'Prácticas'
+      WHERE beneficiary_cuil = $1 AND type = 'Práctica Médica'
       
       UNION ALL
       
@@ -157,8 +157,8 @@ export async function GET(request, { params }) {
         beneficiary_cuil,
         created_at as date,
         medication_name as description,
-        provider_name as provider,
-        status
+        NULL as provider,
+        CAST(status AS VARCHAR) as status
       FROM medication_requests 
       WHERE beneficiary_cuil = $1
       
@@ -169,9 +169,9 @@ export async function GET(request, { params }) {
         id,
         beneficiary_cuil,
         created_at as date,
-        prosthesis_name as description,
-        provider_name as provider,
-        status
+        title as description,
+        CAST(provider_id AS VARCHAR) as provider,
+        CAST(status AS VARCHAR) as status
       FROM authorizations 
       WHERE beneficiary_cuil = $1 AND type = 'Prótesis'
       
@@ -182,9 +182,9 @@ export async function GET(request, { params }) {
         id,
         beneficiary_cuil,
         created_at as date,
-        transport_type as description,
-        provider_name as provider,
-        status
+        title as description,
+        CAST(provider_id AS VARCHAR) as provider,
+        CAST(status AS VARCHAR) as status
       FROM authorizations 
       WHERE beneficiary_cuil = $1 AND type = 'Traslado'
       
@@ -239,6 +239,14 @@ export async function GET(request, { params }) {
       activo: beneficiaryData.activo,
       fSssTipoDeBeneficiario: beneficiaryData.fSssTipoDeBeneficiario,
       fSssParentesco: beneficiaryData.fSssParentesco,
+      fSssSexoCodigo: beneficiaryData.fSssSexoCodigo,
+      calle: beneficiaryData.calle,
+      fSssProvincia: beneficiaryData.fSssProvincia,
+      fSssIncapacitadoTipoCodigo: beneficiaryData.fSssIncapacitadoTipoCodigo,
+      fSssSituacionDeRevista: beneficiaryData.fSssSituacionDeRevista,
+      memberId: beneficiaryData.fSssParentesco?.sssCodigo === '0' 
+        ? `${beneficiaryData.cuil}/00` 
+        : `${beneficiaryData.cuil}/01`,
       
       // Datos calculados
       edad: calculateAge(beneficiaryData.fechaNacimiento),
@@ -249,8 +257,20 @@ export async function GET(request, { params }) {
       
       // Datos adicionales del perfil (si existen)
       internalProfile: profileData?.internal_profile || '',
-      chronicConditions: profileData?.chronic_conditions ? JSON.parse(profileData.chronic_conditions) : [],
-      chronicMedication: profileData?.chronic_medication ? JSON.parse(profileData.chronic_medication) : [],
+      chronicConditions: profileData?.chronic_conditions ? (() => {
+        try {
+          return JSON.parse(profileData.chronic_conditions);
+        } catch {
+          return [];
+        }
+      })() : [],
+      chronicMedication: profileData?.chronic_medication ? (() => {
+        try {
+          return JSON.parse(profileData.chronic_medication);
+        } catch {
+          return [];
+        }
+      })() : [],
       alerts: profileData?.alerts || '',
       
       // Estados calculados

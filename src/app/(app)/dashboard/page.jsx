@@ -308,7 +308,7 @@ const BeneficiaryProfileModal = ({ beneficiary, onClose }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex justify-center items-center p-4">
-      <div className="bg-gray-50 rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-lg">
+      <div className="bg-gray-50 rounded-2xl w-full max-w-6xl max-h-[90vh] h-fit flex flex-col shadow-lg">
         <div className="flex justify-between items-center p-6 border-b border-gray-200">
           <div className="flex items-center space-x-4">
             <h2 className="text-2xl font-bold text-gray-900">Perfil del Beneficiario: {profileData?.nombre || beneficiary.nombre}</h2>
@@ -326,7 +326,7 @@ const BeneficiaryProfileModal = ({ beneficiary, onClose }) => {
           </div>
         </div>
         
-        <div className="flex-grow p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="flex-grow p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column */}
           <div className="lg:col-span-1 space-y-6">
             {criticalStatus && <AlertBanner text={criticalStatus} />}
@@ -340,19 +340,19 @@ const BeneficiaryProfileModal = ({ beneficiary, onClose }) => {
                   <span>{profileData?.cuil || beneficiary.cuil}</span>
                 </InfoRow>
                 <InfoRow label="Sexo">
-                  <span>{profileData?.sex || beneficiary.sex}</span>
+                  <span>{profileData?.fSssSexoCodigo || 'No especificado'}</span>
                 </InfoRow>
                 <InfoRow label="Edad">
-                  <span>{calculateAge(profileData?.dob || beneficiary.dob)} años</span>
+                  <span>{profileData?.fechaNacimiento ? calculateAge(profileData.fechaNacimiento) : 0} años</span>
                 </InfoRow>
                 <InfoRow label="Dirección">
-                  <span>{profileData?.address || beneficiary.address}</span>
+                  <span>{profileData?.calle || 'No especificada'}</span>
                 </InfoRow>
                 <InfoRow label="Provincia">
-                  <span>{profileData?.province || beneficiary.province}</span>
+                  <span>{profileData?.fSssProvincia?.nombre || 'No especificada'}</span>
                 </InfoRow>
                 <InfoRow label="Tipo Beneficiario">
-                  <span>{profileData?.beneficiaryType || beneficiary.beneficiaryType}</span>
+                  <span>{profileData?.fSssParentesco?.nombre || 'No especificado'}</span>
                 </InfoRow>
                 <InfoRow label="Plan">
                   <span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
@@ -362,10 +362,10 @@ const BeneficiaryProfileModal = ({ beneficiary, onClose }) => {
                   </span>
                 </InfoRow>
                 <InfoRow label="Discapacidad">
-                  <span>{profileData?.hasDisability ? 'Sí' : 'No'}</span>
+                  <span>{profileData?.fSssIncapacitadoTipoCodigo === '01' ? 'Sí' : 'No'}</span>
                 </InfoRow>
                 <InfoRow label="Situación Revista">
-                  <span>{profileData?.reviewStatus || beneficiary.reviewStatus}</span>
+                  <span>{profileData?.fSssSituacionDeRevista?.nombre || 'No especificada'}</span>
                 </InfoRow>
               </div>
             </div>
@@ -400,7 +400,7 @@ const BeneficiaryProfileModal = ({ beneficiary, onClose }) => {
           </div>
 
           {/* Right Column */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-1 space-y-6">
             <div className="bg-white p-6 rounded-xl shadow-sm">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-lg">Resumen Clínico</h3>
