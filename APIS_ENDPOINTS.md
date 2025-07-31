@@ -36,8 +36,13 @@ Ruta base: `/api/autorizaciones`
 
 #### `GET /api/autorizaciones/internas`
 - **Método:** `GET`
-- **Descripción:** Obtiene una lista combinada de **autorizaciones de prácticas médicas** y de **internaciones en estado 'INICIADA'**. Está diseñado específicamente para alimentar el tablero Kanban de la gestión interna. Normaliza los datos de ambos recursos para que puedan ser consumidos de manera uniforme por el frontend.
+- **Descripción:** Obtiene una lista combinada de **autorizaciones de prácticas médicas**, **internaciones en estado 'INICIADA'** y **órdenes de medicación**. Está diseñado específicamente para alimentar el tablero Kanban de la gestión interna. Normaliza los datos de todos los recursos para que puedan ser consumidos de manera uniforme por el frontend.
 - **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Parámetros de Query (Opcionales):**
+  - `dateFrom` (String): Fecha desde en formato `YYYY-MM-DD`
+  - `dateTo` (String): Fecha hasta en formato `YYYY-MM-DD`
+  - `status` (String): Estado de la solicitud (solo aplica a autorizaciones)
+  - `cuil` (String): CUIL del beneficiario para búsqueda parcial
 - **Respuesta:**
   ```json
   [
@@ -64,9 +69,33 @@ Ruta base: `/api/autorizaciones`
       "provider_name": "Clínica del Sol",
       "auditor_name": null,
       "requestType": "internment"
+    },
+    {
+      "id": "98765432109876543",
+      "date": "24/07/2025",
+      "type": "Medicación",
+      "title": "Orden de Medicación",
+      "beneficiary": "Carlos Rodriguez",
+      "status": "Creada",
+      "isImportant": false,
+      "provider_name": null,
+      "auditor_name": null,
+      "requestType": "medication",
+      "items_count": 1,
+      "total_quotations_count": 0,
+      "completed_quotations_count": 0
     }
   ]
   ```
+- **Filtros Implementados:**
+  - **Fecha desde/hasta:** Aplica a todas las consultas
+  - **Estado:** Solo aplica a autorizaciones de prácticas médicas
+  - **CUIL:** Búsqueda parcial en todas las consultas usando `ILIKE`
+- **Logs de Debugging:** Incluye logs detallados para trazabilidad
+- **Campos Adicionales para Medicación:**
+  - `high_cost` (BOOLEAN): Indica si es medicación de alto coste
+  - `quotation_status` (VARCHAR): Estado del proceso de cotización
+  - `audit_required` (BOOLEAN): Si requiere auditoría médica
 
 #### `POST /api/autorizaciones`
 - **Método:** `POST`
@@ -435,6 +464,424 @@ Endpoints diseñados para generar enlaces públicos y de solo lectura a recursos
 
 ---
 
+## 3.5. Sistema de Gestión de Medicación
+
+Endpoints para el manejo completo del flujo de trabajo de solicitudes de medicación, incluyendo órdenes, cotizaciones y autorizaciones.
+
+### 3.5.1. Gestión de Órdenes de Medicación
+
+#### `POST /api/medication-orders`
+- **Método:** `POST`
+- **Descripción:** Crea una nueva orden de medicación con múltiples items de medicamentos. **CORREGIDO:** Ahora crea una solicitud separada por cada item de medicación en la tabla `medication_requests`.
+- **Rol Requerido:** `admin`, `operador`.
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "beneficiaryName": "Juan Pérez",
+    "beneficiaryCuil": "20-12345678-9",
+    "diagnosis": "Diabetes tipo 2",
+    "requestingDoctor": "Dr. García",
+    "urgencyLevel": "Normal",
+    "specialObservations": "Observaciones especiales",
+    "highCost": false,
+    "quotationDeadlineHours": 48,
+    "items": [
+      {
+        "medicationName": "Metformina",
+        "dosage": "500mg",
+        "quantity": 30,
+        "unit": "comprimidos",
+        "specialInstructions": "Tomar con las comidas",
+        "priority": 1
+      }
+    ],
+    "attachments": []
+  }
+  ```
+- **Respuesta:**
+  ```json
+  {
+    "message": "Orden de medicación creada con éxito.",
+    "orders": [
+      {
+        "id": "123",
+        "medication_name": "Metformina",
+        "dosage": "500mg",
+        "quantity": 30,
+        "unit": "comprimidos",
+        "beneficiary_name": "Juan Pérez",
+        "status": "Creada",
+        "isHighCost": false,
+        "requiresQuotation": false,
+        "requiresAudit": false
+      }
+    ]
+  }
+  ```
+- **Notas Importantes:**
+  - **Estructura Corregida:** Cada item de medicación se crea como una solicitud separada
+  - **Alto Coste:** Campo `highCost` determina el flujo de trabajo
+  - **Estados Iniciales:** "En Cotización" (alto coste) o "Pendiente de Revisión" (normal)
+  - **Detección Automática:** Sistema detecta automáticamente medicamentos de alto coste
+  - **Estados Permitidos:** Solo los estados definidos en la restricción `check_request_status` son válidos
+
+#### `GET /api/medication-orders`
+- **Método:** `GET`
+- **Descripción:** Lista todas las órdenes de medicación con filtros y paginación.
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Parámetros de Query:**
+  - `status` (String, opcional): Filtra por estado de la orden
+  - `page` (Number, opcional): Número de página (default: 1)
+  - `limit` (Number, opcional): Resultados por página (default: 20)
+- **Respuesta:**
+  ```json
+  {
+    "orders": [
+      {
+        "id": "123",
+        "beneficiaryName": "Juan Pérez",
+        "diagnosis": "Diabetes tipo 2",
+        "status": "En Cotización",
+        "items_count": 2,
+        "total_quotations_count": 6,
+        "completed_quotations_count": 4
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 50,
+      "totalPages": 3
+    }
+  }
+  ```
+
+### 3.5.2. Envío a Cotización
+
+#### `POST /api/medication-orders/[id]/send-to-quotation`
+- **Método:** `POST`
+- **Descripción:** Envía una orden de medicación a múltiples droguerías para cotización, generando tokens únicos y enviando notificaciones por email.
+- **Rol Requerido:** `admin`, `operador`.
+- **Parámetros de URL:**
+  - `id`: ID de la orden de medicación
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "pharmacyIds": [1, 2, 3]
+  }
+  ```
+- **Funcionalidades:**
+  - Crea registros de cotización para cada item y droguería
+  - Genera tokens únicos para acceso público
+  - Envía emails automáticos a las droguerías
+  - Actualiza estado de la orden a 'En Cotización'
+- **Respuesta:**
+  ```json
+  {
+    "message": "Orden enviada a cotización exitosamente.",
+    "quotationsCreated": 6,
+    "pharmaciesNotified": 3
+  }
+  ```
+
+### 3.5.3. Cotizaciones Públicas (Droguerías)
+
+#### `GET /api/public/medication-quotation/[token]`
+- **Método:** `GET`
+- **Descripción:** Endpoint público para que las droguerías vean los detalles de una cotización pendiente.
+- **Rol Requerido:** Ninguno (Público).
+- **Parámetros de URL:**
+  - `token`: Token único de la cotización
+- **Respuesta:**
+  ```json
+  {
+    "message": "Cotización pendiente de completar.",
+    "quotation": {
+      "id": "789",
+      "status": "Pendiente",
+      "tokenExpiresAt": "2024-01-22T10:00:00Z"
+    },
+    "item": {
+      "medicationName": "Metformina",
+      "dosage": "500mg",
+      "quantity": 30,
+      "unit": "comprimidos"
+    },
+    "order": {
+      "beneficiaryName": "Juan Pérez",
+      "diagnosis": "Diabetes tipo 2",
+      "requestingDoctor": "Dr. García"
+    },
+    "pharmacy": {
+      "name": "Farmacia Central",
+      "contactPerson": "María López"
+    }
+  }
+  ```
+
+#### `POST /api/public/medication-quotation/[token]`
+- **Método:** `POST`
+- **Descripción:** Permite a las droguerías enviar su cotización con precios y condiciones.
+- **Rol Requerido:** Ninguno (Público).
+- **Parámetros de URL:**
+  - `token`: Token único de la cotización
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "unitPrice": 15.50,
+    "totalPrice": 465.00,
+    "availability": "24hs",
+    "deliveryTime": "Entrega en sucursal",
+    "commercialConditions": "Pago a 30 días",
+    "observations": "Medicamento disponible en stock"
+  }
+  ```
+- **Funcionalidades:**
+  - Valida que la cotización esté pendiente y no haya expirado
+  - Actualiza el estado a 'Cotizada'
+  - Envía notificación automática al operador
+- **Respuesta:**
+  ```json
+  {
+    "message": "Cotización enviada exitosamente.",
+    "quotation": {
+      "id": "789",
+      "status": "Cotizada",
+      "totalPrice": 465.00
+    }
+  }
+  ```
+
+### 3.5.4. Gestión de Cotizaciones
+
+#### `GET /api/medication-orders/[id]/quotations`
+- **Método:** `GET`
+- **Descripción:** Obtiene todas las cotizaciones de una orden específica con estadísticas detalladas.
+- **Rol Requerido:** `admin`, `auditor`, `operador` (solo creador o auditores).
+- **Parámetros de URL:**
+  - `id`: ID de la orden de medicación
+- **Respuesta:**
+  ```json
+  {
+    "order": {
+      "id": "123",
+      "beneficiaryName": "Juan Pérez",
+      "status": "En Cotización"
+    },
+    "items": [
+      {
+        "id": "456",
+        "medicationName": "Metformina",
+        "quotations_count": 3,
+        "completed_quotations_count": 2
+      }
+    ],
+    "quotations": [
+      {
+        "id": "789",
+        "unitPrice": 15.50,
+        "totalPrice": 465.00,
+        "status": "Cotizada",
+        "pharmacy": {
+          "name": "Farmacia Central",
+          "contactPerson": "María López"
+        }
+      }
+    ],
+    "quotationsByItem": {
+      "456": [...]
+    },
+    "statistics": {
+      "totalQuotations": 6,
+      "completedQuotations": 4,
+      "completionRate": 66.67,
+      "priceRanges": {
+        "456": {
+          "min": 450.00,
+          "max": 520.00,
+          "average": 485.00
+        }
+      }
+    }
+  }
+  ```
+
+### 3.5.5. Autorización de Cotizaciones
+
+#### `POST /api/medication-orders/[id]/authorize`
+- **Método:** `POST`
+- **Descripción:** Permite a los auditores médicos autorizar una cotización específica, completando el flujo de trabajo.
+- **Rol Requerido:** `admin`, `auditor`.
+- **Parámetros de URL:**
+  - `id`: ID de la orden de medicación
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "authorizedQuotationId": "789",
+    "authorizationNotes": "Mejor precio y disponibilidad inmediata",
+    "authorizationType": "full"
+  }
+  ```
+- **Funcionalidades:**
+  - Verifica que todas las cotizaciones estén completadas
+  - Marca la cotización seleccionada como 'Autorizada'
+  - Marca las demás como 'Rechazada'
+  - Actualiza el estado de la orden a 'Autorizada'
+  - Envía notificaciones automáticas al operador y droguería
+- **Respuesta:**
+  ```json
+  {
+    "message": "Orden autorizada exitosamente.",
+    "order": {
+      "id": "123",
+      "status": "Autorizada",
+      "authorizedQuotation": {
+        "id": "789",
+        "pharmacy": {
+          "name": "Farmacia Central"
+        },
+        "totalPrice": 465.00
+      }
+    }
+  }
+  ```
+
+### 3.5.6. Gestión de Droguerías
+
+#### `GET /api/pharmacies`
+- **Método:** `GET`
+- **Descripción:** Lista todas las droguerías con filtros, paginación y estadísticas de rendimiento.
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Parámetros de Query:**
+  - `isActive` (Boolean, opcional): Filtra por estado activo
+  - `search` (String, opcional): Búsqueda en nombre, contacto y email
+  - `page` (Number, opcional): Número de página
+  - `limit` (Number, opcional): Resultados por página
+- **Respuesta:**
+  ```json
+  {
+    "pharmacies": [
+      {
+        "id": "1",
+        "name": "Farmacia Central",
+        "email": "ventas@farmaciacentral.com",
+        "contactPerson": "María López",
+        "isActive": true,
+        "total_quotations": 15,
+        "authorized_quotations": 8,
+        "success_rate": 53
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 25,
+      "totalPages": 2
+    }
+  }
+  ```
+
+#### `POST /api/pharmacies`
+- **Método:** `POST`
+- **Descripción:** Crea una nueva droguería en el sistema.
+- **Rol Requerido:** `admin`, `operador`.
+- **Cuerpo (JSON):**
+  ```json
+  {
+    "name": "Farmacia Central",
+    "email": "ventas@farmaciacentral.com",
+    "phone": "+54 11 1234-5678",
+    "address": "Av. Corrientes 1234, CABA",
+    "contactPerson": "María López",
+    "isActive": true
+  }
+  ```
+- **Respuesta:**
+  ```json
+  {
+    "message": "Droguería creada exitosamente.",
+    "pharmacy": {
+      "id": "1",
+      "name": "Farmacia Central",
+      "email": "ventas@farmaciacentral.com"
+    }
+  }
+  ```
+
+#### `GET /api/pharmacies/[id]`
+- **Método:** `GET`
+- **Descripción:** Obtiene información detallada de una droguería específica con historial de cotizaciones.
+- **Rol Requerido:** `admin`, `auditor`, `operador`.
+- **Parámetros de URL:**
+  - `id`: ID de la droguería
+- **Respuesta:**
+  ```json
+  {
+    "pharmacy": {
+      "id": "1",
+      "name": "Farmacia Central",
+      "total_quotations": 15,
+      "authorized_quotations": 8,
+      "pending_quotations": 3,
+      "rejected_quotations": 4,
+      "success_rate": 53
+    },
+    "recentQuotations": [
+      {
+        "id": "789",
+        "status": "Autorizada",
+        "totalPrice": 465.00,
+        "medicationName": "Metformina"
+      }
+    ],
+    "statistics": {
+      "totalQuotations": 15,
+      "authorizedQuotations": 8,
+      "successRate": 53
+    }
+  }
+  ```
+
+#### `PUT /api/pharmacies/[id]`
+- **Método:** `PUT`
+- **Descripción:** Actualiza los datos de una droguería existente.
+- **Rol Requerido:** `admin`, `operador`.
+- **Parámetros de URL:**
+  - `id`: ID de la droguería
+- **Cuerpo (JSON):** Mismos campos que POST
+- **Respuesta:**
+  ```json
+  {
+    "message": "Droguería actualizada exitosamente.",
+    "pharmacy": {
+      "id": "1",
+      "name": "Farmacia Central Actualizada"
+    }
+  }
+  ```
+
+#### `DELETE /api/pharmacies/[id]`
+- **Método:** `DELETE`
+- **Descripción:** Desactiva una droguería (soft delete) si no tiene cotizaciones activas.
+- **Rol Requerido:** `admin`.
+- **Parámetros de URL:**
+  - `id`: ID de la droguería
+- **Validaciones:**
+  - Verifica que no tenga cotizaciones pendientes o cotizadas
+  - Realiza soft delete (marca como inactiva)
+- **Respuesta:**
+  ```json
+  {
+    "message": "Droguería desactivada exitosamente.",
+    "pharmacy": {
+      "id": "1",
+      "isActive": false
+    }
+  }
+  ```
+
+---
+
 ## 4. Tareas Automatizadas (Cron Jobs)
 
 Estos endpoints están diseñados para ser llamados por un servicio externo de cron (como Vercel Cron o EasyCron) de forma programada. Requieren un token de autorización `Bearer` para ser ejecutados.
@@ -523,7 +970,273 @@ Endpoints y lógica relacionados con la autenticación y gestión de sesiones de
 - **Página de Login:**
   - Redirige a los usuarios no autenticados a la página unificada `/login`. 
 
+---
+
+## 7. Sistema de Filtros
+
+### 7.1. Filtros en Autorizaciones Internas
+
+#### Implementación de Filtros en `/api/autorizaciones/internas`
+- **Descripción:** Sistema de filtros avanzado para la página de autorizaciones internas
+- **Parámetros Soportados:**
+  - `dateFrom`: Fecha desde en formato `YYYY-MM-DD`
+  - `dateTo`: Fecha hasta en formato `YYYY-MM-DD` (se agrega `23:59:59`)
+  - `status`: Estado de la solicitud (solo aplica a autorizaciones)
+  - `cuil`: CUIL del beneficiario para búsqueda parcial
+
+#### Lógica de Filtrado por Tipo de Consulta
+- **Autorizaciones (`authorizations`):**
+  - ✅ Filtro por fecha: `a.created_at >= dateFrom` y `a.created_at <= dateTo`
+  - ✅ Filtro por estado: `a.status = status`
+  - ✅ Filtro por CUIL: `a.beneficiary_cuil ILIKE %cuil%`
+
+- **Internaciones (`internments`):**
+  - ✅ Filtro por fecha: `i.created_at >= dateFrom` y `i.created_at <= dateTo`
+  - ❌ Filtro por estado: No aplica (siempre `i.status = 'INICIADA'`)
+  - ✅ Filtro por CUIL: `i.beneficiary_cuil ILIKE %cuil%`
+
+- **Medicación (`medication_requests`):**
+  - ✅ Filtro por fecha: `mr.created_at >= dateFrom` y `mr.created_at <= dateTo`
+  - ❌ Filtro por estado: No aplica (estados específicos: Creada, En Cotización, etc.)
+  - ✅ Filtro por CUIL: `mr.beneficiary_cuil ILIKE %cuil%`
+
+#### Características Técnicas
+- **Parámetros Preparados:** Uso de `$1`, `$2`, etc. para prevenir SQL injection
+- **Búsqueda Parcial:** Uso de `ILIKE` con `%` para búsquedas flexibles
+- **Logs Detallados:** Trazabilidad completa de filtros aplicados
+- **Función Helper:** `buildWhereConditions()` para construcción dinámica de SQL
+
+#### Base de Datos
+- **Columna Agregada:** `beneficiary_cuil VARCHAR(20)` en tabla `authorizations`
+- **Propósito:** Permitir filtrado por CUIL en autorizaciones
+- **Compatibilidad:** Formato CUIL argentino (XX-XXXXXXXX-X)
+
 ### 6.2. Cierre de Sesión (Endpoint Manual)
 
 #### `POST /api/logout`
-- **Método:** `
+- **Método:** `POST`
+- **Descripción:** Endpoint manual para cerrar sesión, complementario a NextAuth.js
+- **Rol Requerido:** Cualquier usuario autenticado
+- **Respuesta:** Redirección a página de login
+
+---
+
+## 7. Sistema de Medicación de Alto Coste
+
+### 7.1. Creación de Órdenes de Medicación
+
+#### `POST /api/medication-orders`
+- **Método:** `POST`
+- **Descripción:** Crea órdenes de medicación con soporte para alto coste
+- **Rol Requerido:** `admin`, `operador`
+- **Nuevos Campos:**
+  - `highCost` (BOOLEAN): Indica si es medicación de alto coste
+  - Detección automática basada en lista de medicamentos de alto coste
+- **Estados Iniciales:**
+  - **Alto Coste:** "Pendiente de Cotización"
+  - **Normal:** "Enviada a Auditoría"
+- **Respuesta:**
+  ```json
+  {
+    "message": "Orden de medicación creada con éxito.",
+    "order": {
+      "id": "123",
+      "status": "Pendiente de Cotización",
+      "isHighCost": true,
+      "requiresQuotation": true,
+      "requiresAudit": true,
+      "items": [...]
+    }
+  }
+  ```
+
+### 7.2. Envío a Cotización
+
+#### `POST /api/medication-orders/[id]/send-to-quotation`
+- **Método:** `POST`
+- **Descripción:** Envía orden de alto coste a cotización con múltiples farmacias
+- **Rol Requerido:** `admin`, `operador`
+- **Parámetros:**
+  - `pharmacyIds` (ARRAY): Lista de IDs de farmacias (mínimo 3)
+- **Características:**
+  - Control de tiempo de 48 horas
+  - Generación de tokens únicos por cotización
+  - Mínimo 3 farmacias requeridas
+  - Estado: "En Cotización"
+- **Respuesta:**
+  ```json
+  {
+    "message": "Orden enviada a cotización exitosamente.",
+    "orderId": "123",
+    "pharmaciesCount": 3,
+    "deadline": "2024-12-21T10:00:00Z",
+    "status": "En Cotización"
+  }
+  ```
+
+### 7.3. Verificación de Estado de Cotizaciones
+
+#### `GET /api/medication-orders/[id]/send-to-quotation`
+- **Método:** `GET`
+- **Descripción:** Verifica estado de cotizaciones de una orden
+- **Rol Requerido:** `admin`, `operador`, `auditor`
+- **Respuesta:**
+  ```json
+  {
+    "order": {
+      "id": "123",
+      "high_cost": true,
+      "quotation_status": "sent",
+      "quotation_deadline": "2024-12-21T10:00:00Z",
+      "isExpired": false,
+      "timeRemaining": 3600000,
+      "total_quotations": 9,
+      "responded_quotations": 2,
+      "pending_quotations": 7
+    }
+  }
+  ```
+
+### 7.4. Campos de Base de Datos
+
+**Tabla `medication_requests` - Nuevos Campos:**
+- `high_cost` (BOOLEAN): Determina si es medicación de alto coste
+- `quotation_deadline` (TIMESTAMP): Fecha límite de 48 horas para cotizaciones
+- `minimum_quotations` (INTEGER): Mínimo de cotizaciones requeridas (default: 3)
+- `sent_quotations_count` (INTEGER): Contador de cotizaciones enviadas
+- `responded_quotations_count` (INTEGER): Contador de cotizaciones respondidas
+- `quotation_status` (VARCHAR(20)): Estado del proceso de cotización
+- `audit_required` (BOOLEAN): Si requiere auditoría médica
+
+**Estados de `quotation_status`:**
+- `pending`: Pendiente de envío a cotización
+- `sent`: Enviada a cotización
+- `partial_response`: Respuesta parcial recibida
+- `complete_response`: Todas las cotizaciones respondidas
+- `expired`: Tiempo expirado
+- `not_required`: No requiere cotización (medicación normal)
+
+## 8. Módulo de Medicaciones de Alto Coste
+
+### 8.1. Dashboard de Alto Coste
+
+#### `GET /api/medication-orders/high-cost`
+- **Método:** `GET`
+- **Descripción:** Obtiene todas las medicaciones de alto coste con estadísticas para el dashboard
+- **Rol Requerido:** `admin`, `operador`, `auditor`
+- **Respuesta:**
+  ```json
+  {
+    "orders": [
+      {
+        "id": "123",
+        "beneficiary_name": "Juan Pérez",
+        "beneficiary_cuil": "20123456789",
+        "diagnosis": "Diabetes tipo 2",
+        "requesting_doctor": "Dr. García",
+        "urgency_level": "Normal",
+        "status": "En Cotización",
+        "created_at": "2024-12-19T10:00:00Z",
+        "quotation_deadline": "2024-12-21T10:00:00Z",
+        "sent_quotations_count": 3,
+        "responded_quotations_count": 1,
+        "quotation_status": "sent",
+        "high_cost": true,
+        "created_by_name": "Operador 1"
+      }
+    ],
+    "stats": {
+      "total": 15,
+      "pending": 3,
+      "inQuotation": 8,
+      "completed": 3,
+      "expired": 1
+    }
+  }
+  ```
+
+### 8.2. Sistema de Alertas
+
+#### `GET /api/medication-orders/high-cost/alerts`
+- **Método:** `GET`
+- **Descripción:** Obtiene alertas automáticas para medicaciones de alto coste que requieren atención
+- **Rol Requerido:** `admin`, `operador`, `auditor`
+- **Criterios de Alerta:**
+  - **Expiradas:** `quotation_deadline < now`
+  - **Próximas a expirar:** `quotation_deadline - now <= 4 horas`
+  - **Sin respuesta:** `responded_quotations_count = 0 AND created_at > 24h`
+- **Respuesta:**
+  ```json
+  {
+    "alerts": [
+      {
+        "id": "expired_123",
+        "type": "expired",
+        "orderId": "123",
+        "beneficiaryName": "Juan Pérez",
+        "respondedCount": 0,
+        "totalCount": 3,
+        "timeRemaining": "Expirado",
+        "priority": "high"
+      },
+      {
+        "id": "expiring_456",
+        "type": "expiring_soon",
+        "orderId": "456",
+        "beneficiaryName": "María López",
+        "respondedCount": 2,
+        "totalCount": 3,
+        "timeRemaining": "2h",
+        "priority": "medium"
+      }
+    ]
+  }
+  ```
+
+### 8.3. Características del Sistema de Alertas
+
+**Tipos de Alerta:**
+- `expired`: Cotización expirada (prioridad alta, color rojo)
+- `expiring_soon`: Próxima a expirar (prioridad media, color amarillo)
+- `no_response`: Sin respuesta (prioridad baja, color azul)
+
+**Priorización:**
+1. Órdenes expiradas
+2. Órdenes próximas a expirar (≤ 4 horas)
+3. Órdenes sin respuesta (> 24 horas)
+
+**Límites:**
+- Máximo 10 alertas más importantes
+- Actualización automática cada 5 minutos
+- Alertas descartables individualmente
+
+### 8.4. Página de Alto Coste
+
+**Ruta:** `/high-cost-medications`
+
+**Características:**
+- Dashboard con 5 métricas en tiempo real
+- Tabla detallada con información de órdenes
+- Control de tiempo visual (formato: "23h 45m")
+- Estados diferenciados por color
+- Información de cotizaciones respondidas vs total
+
+**Métricas del Dashboard:**
+- **Total:** Todas las medicaciones de alto coste
+- **Pendientes:** Estado "Pendiente de Cotización"
+- **En Cotización:** Estado "En Cotización"
+- **Completadas:** Estados "Autorizada" o "Rechazada"
+- **Expiradas:** Cotizaciones con deadline vencido
+
+### 8.5. Integración en Navegación
+
+**Nuevo Enlace en Sidebar:**
+- **Rol:** `auditor`, `operador`
+- **Icono:** `ExclamationTriangleIcon`
+- **Texto:** "Medicaciones de Alto Coste"
+- **Ruta:** `/high-cost-medications`
+
+**Alertas en Página Principal:**
+- Componente `HighCostAlerts` integrado en `/autorizaciones`
+- Actualización automática cada 5 minutos
+- Interfaz no intrusiva y descartable

@@ -2,7 +2,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../api/auth/[...nextauth]/route';
 import { redirect } from 'next/navigation';
-import { HomeIcon, Cog6ToothIcon, UsersIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, Cog6ToothIcon, UsersIcon, ShieldCheckIcon, BuildingStorefrontIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import LogoutButton from '@/components/ui/LogoutButton';
 
 export default async function AppLayout({ children }) {
@@ -22,17 +22,21 @@ export default async function AppLayout({ children }) {
             { name: 'Gestionar Usuarios', href: '/users', icon: UsersIcon },
             { name: 'Configuración', href: '/settings', icon: Cog6ToothIcon },
         ];
-    } else if (user.role === 'auditor') {
-        navigation = [
-            { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-            { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },
-        ];
-    } else if (user.role === 'operador') {
-        navigation = [
-            { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
-            { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },
-        ];
-    }
+            } else if (user.role === 'auditor') {
+            navigation = [
+                { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+                { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },
+                { name: 'Droguerías', href: '/pharmacies', icon: BuildingStorefrontIcon },
+                { name: 'Medicaciones de Alto Coste', href: '/high-cost-medications', icon: ExclamationTriangleIcon },
+            ];
+        } else if (user.role === 'operador') {
+            navigation = [
+                { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
+                { name: 'Autorizaciones', href: '/autorizaciones', icon: ShieldCheckIcon },
+                { name: 'Droguerías', href: '/pharmacies', icon: BuildingStorefrontIcon },
+                { name: 'Medicaciones de Alto Coste', href: '/high-cost-medications', icon: ExclamationTriangleIcon },
+            ];
+        }
 
     return (
         <div className="min-h-screen bg-gray-100 flex">

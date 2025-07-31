@@ -25,7 +25,7 @@ export async function GET(request, { params }) {
     switch (resource_type) {
       case 'internment':
         // Lógica para obtener los detalles de la internación
-        const internmentQuery = 'SELECT * FROM internments WHERE id = $1';
+        const internmentQuery = 'SELECT i.*, p.razonsocial as provider_name FROM internments i LEFT JOIN prestadores p ON i.notifying_provider_id = p.id WHERE i.id = $1';
         const internmentResult = await client.query(internmentQuery, [resource_id]);
         if (internmentResult.rowCount > 0) {
             const internment = internmentResult.rows[0];

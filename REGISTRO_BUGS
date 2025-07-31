@@ -300,3 +300,60 @@ Este documento sirve como un registro centralizado de todos los bugs identificad
 -   **Descripción:** A pesar de múltiples intentos por ajustar el tamaño del componente `<Modal>` contenedor (probando tamaños `lg`, `2xl`, `4xl`) y de modificar los estilos del componente `<FieldAuditRequestForm>` para que sea flexible, el resultado visual no cambia. El formulario no se expande para ocupar el espacio que su contenedor le asigna.
 -   **Causa Raíz (Hipótesis):** Existe un conflicto de estilos persistente o una propiedad de CSS que está limitando el ancho del formulario, la cual no ha sido identificada. La interacción entre el layout del modal genérico y el layout del formulario específico es la causa probable.
 -   **Estado:** **Pendiente de Resolución.** Requiere una revisión más profunda por parte de otro desarrollador. 
+
+---
+
+## Bug #21: Error de Importación en API de Auditorías de Terreno
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Auditorías de Terreno / Sistema de Notificaciones de Urgencia
+-   **Error Reportado:** `Module not found: Can't resolve '../../../../auth/[...nextauth]/route'` al intentar crear una solicitud de auditoría de terreno urgente.
+-   **Descripción:** El endpoint `POST /api/internments/[id]/field-audits` tenía una ruta de importación incorrecta para `authOptions`, causando un fallo en la compilación del módulo.
+-   **Causa Raíz:** La ruta relativa `../../../../auth/[...nextauth]/route` no era correcta para la estructura de directorios del proyecto.
+-   **Solución Aplicada:**
+    1.  Se identificó que otros archivos similares usaban rutas absolutas con el alias `@/app/api/auth/[...nextauth]/route`.
+    2.  Se cambió la importación de `import { authOptions } from '../../../../auth/[...nextauth]/route.js';` a `import { authOptions } from '@/app/api/auth/[...nextauth]/route';`.
+    3.  Esta ruta absoluta es consistente con otros archivos del proyecto y evita problemas de navegación relativa.
+-   **Resultado:** Se resolvió el error de importación y el endpoint ahora puede compilar correctamente.
+
+---
+
+## Bug #22: Error de Columna Inexistente en Tabla Notifications
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Auditorías de Terreno / Sistema de Notificaciones de Urgencia
+-   **Error Reportado:** `error: no existe la columna «user_id» en la relación «notifications»` al intentar crear una notificación urgente.
+-   **Descripción:** El código intentaba insertar en la tabla `notifications` usando columnas que no existen en el esquema actual de la base de datos.
+-   **Causa Raíz:** El código asumía una estructura de tabla `notifications` con columnas `user_id`, `link`, y `read`, pero la tabla real tiene columnas `provider_id`, `internment_id`, `message`, `is_read`, y `created_at`.
+-   **Solución Aplicada:**
+    1.  Se revisó la estructura real de la tabla `notifications` en el esquema de la base de datos.
+    2.  Se corrigió la consulta SQL de:
+        ```sql
+        INSERT INTO notifications (user_id, message, link, read)
+        VALUES ($1, $2, $3, FALSE);
+        ```
+        A:
+        ```sql
+        INSERT INTO notifications (provider_id, internment_id, message, is_read)
+        VALUES ($1, $2, $3, FALSE);
+        ```
+    3.  Se ajustaron los parámetros correspondientes para pasar `assignedAuditorId, internmentId, notificationMessage`.
+-   **Resultado:** Se resolvió el error de columna inexistente y las notificaciones urgentes ahora se pueden crear correctamente en la base de datos.
+
+---
+
+## Bug #23: Columna is_urgent Faltante en Tabla field_audits
+
+-   **Fecha de Solución:** (Actual)
+-   **Módulo Afectado:** API / Detalles de Internaciones / Auditorías de Terreno
+-   **Error Reportado:** `error: no existe la columna fa.is_urgent` al intentar ver los detalles de una internación.
+-   **Descripción:** El endpoint `GET /api/internments/[id]` intentaba seleccionar la columna `fa.is_urgent` de la tabla `field_audits`, pero esta columna no existía en la base de datos.
+-   **Causa Raíz:** La funcionalidad de auditorías urgentes fue implementada en el código antes de que la columna correspondiente fuera añadida a la base de datos.
+-   **Solución Aplicada:**
+    1.  Se creó un script de migración `migration_add_is_urgent_to_field_audits.sql`.
+    2.  El script añade la columna `is_urgent BOOLEAN NOT NULL DEFAULT FALSE` a la tabla `field_audits`.
+    3.  Se incluye un comentario para documentar el propósito de la columna.
+    4.  El usuario ejecutó el script en la base de datos.
+-   **Resultado:** Se resolvió el error de columna faltante y ahora se pueden mostrar correctamente los indicadores de urgencia en las auditorías de terreno.
+
+--- 

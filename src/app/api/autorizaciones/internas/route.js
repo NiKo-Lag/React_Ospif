@@ -3,7 +3,7 @@ import { pool } from '@/lib/db';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]/route';
 
-export async function GET() {
+export async function GET(request) {
   console.log("[DEBUG-BACKEND] Petición recibida en /api/autorizaciones/internas");
 
   const session = await getServerSession(authOptions);
@@ -11,8 +11,66 @@ export async function GET() {
     return NextResponse.json({ message: 'Acceso no autorizado.' }, { status: 403 });
   }
 
+  // Obtener parámetros de filtro de la URL
+  const { searchParams } = new URL(request.url);
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  const status = searchParams.get('status');
+  const cuil = searchParams.get('cuil');
+
+  console.log("[DEBUG-BACKEND] Filtros recibidos:", { dateFrom, dateTo, status, cuil });
+
   const client = await pool.connect();
   try {
+    // Función helper para construir condiciones WHERE
+    const buildWhereConditions = (baseCondition, tableAlias = '', applyStatusFilter = true) => {
+      const conditions = [baseCondition];
+      const params = [];
+      let paramIndex = 1;
+
+      if (dateFrom) {
+        conditions.push(`${tableAlias}created_at >= $${paramIndex}`);
+        params.push(dateFrom);
+        paramIndex++;
+      }
+
+      if (dateTo) {
+        conditions.push(`${tableAlias}created_at <= $${paramIndex}`);
+        params.push(dateTo + ' 23:59:59');
+        paramIndex++;
+      }
+
+      if (status && applyStatusFilter) {
+        conditions.push(`${tableAlias}status = $${paramIndex}`);
+        params.push(status);
+        paramIndex++;
+      }
+
+      if (cuil) {
+        // Para autorizaciones, buscar por beneficiary_name (nombre completo)
+        // Para internaciones y medicación, buscar por beneficiary_cuil (número)
+        if (tableAlias === 'a.') {
+          // En autorizaciones, el CUIL podría estar en el nombre o necesitamos otra lógica
+          // Por ahora, no aplicamos filtro de CUIL a autorizaciones
+          console.log("[DEBUG-BACKEND] Filtro de CUIL no aplicado a autorizaciones (no hay columna beneficiary_cuil)");
+        } else {
+          conditions.push(`${tableAlias}beneficiary_cuil ILIKE $${paramIndex}`);
+          params.push(`%${cuil}%`);
+          paramIndex++;
+        }
+      }
+
+      return {
+        whereClause: conditions.join(' AND '),
+        params
+      };
+    };
+
+    console.log("[DEBUG-BACKEND] Ejecutando consulta de autorizaciones...");
+    
+    // Construir condiciones para autorizaciones
+    const authConditions = buildWhereConditions('a.internment_id IS NULL', 'a.', true);
+    
     // Consulta 1: Obtener las autorizaciones de prácticas médicas
     const authQuery = `
       SELECT 
@@ -29,11 +87,17 @@ export async function GET() {
       FROM authorizations a
       LEFT JOIN prestadores p ON a.provider_id = p.id
       LEFT JOIN users u ON a.auditor_id = u.id
-      WHERE a.internment_id IS NULL;
+      WHERE ${authConditions.whereClause};
     `;
-    const authResult = await client.query(authQuery);
+    const authResult = await client.query(authQuery, authConditions.params);
+    console.log(`[DEBUG-BACKEND] Autorizaciones obtenidas: ${authResult.rows.length}`);
 
     // Consulta 2: Obtener las internaciones con estado 'INICIADA'
+    console.log("[DEBUG-BACKEND] Ejecutando consulta de internaciones...");
+    
+    // Construir condiciones para internaciones (sin filtro de estado ya que internaciones siempre son 'INICIADA')
+    const internmentConditions = buildWhereConditions('i.status = \'INICIADA\'', 'i.', false);
+    
     const internmentQuery = `
       SELECT
         i.id::TEXT,
@@ -50,11 +114,50 @@ export async function GET() {
         i.notifying_provider_id
       FROM internments i
       LEFT JOIN prestadores p ON i.notifying_provider_id = p.id
-      WHERE i.status = 'INICIADA';
+      WHERE ${internmentConditions.whereClause};
     `;
-    const internmentResult = await client.query(internmentQuery);
+    const internmentResult = await client.query(internmentQuery, internmentConditions.params);
+    console.log(`[DEBUG-BACKEND] Internaciones obtenidas: ${internmentResult.rows.length}`);
 
-    const combinedResults = [...authResult.rows, ...internmentResult.rows];
+    // Consulta 3: Obtener las órdenes de medicación
+    console.log("[DEBUG-BACKEND] Ejecutando consulta de medicación...");
+    
+    // Construir condiciones para medicación (sin filtro de estado ya que medicación tiene estados específicos)
+    const medicationConditions = buildWhereConditions('mr.status IN (\'Creada\', \'En Cotización\', \'Pendiente de Autorización\', \'Autorizada\', \'Rechazada\')', 'mr.', false);
+    
+    const medicationQuery = `
+      SELECT
+        mr.id::TEXT,
+        to_char(mr.created_at, 'DD/MM/YYYY') as date,
+        'Medicación' as type,
+        'Orden de Medicación' as title,
+        mr.beneficiary_name as beneficiary,
+        CASE 
+          WHEN mr.status = 'Creada' THEN 'Nuevas Solicitudes'
+          WHEN mr.status = 'En Cotización' THEN 'En Auditoría'
+          WHEN mr.status = 'Pendiente de Revisión' THEN 'En Auditoría'
+          WHEN mr.status = 'Autorizada' THEN 'Autorizada'
+          WHEN mr.status = 'Rechazada' THEN 'Rechazada'
+          ELSE mr.status
+        END as status,
+        false as "isImportant",
+        NULL as provider_name,
+        NULL as auditor_name,
+        'medication' as "requestType",
+        mr.beneficiary_cuil,
+        1 as items_count,
+        0 as total_quotations_count,
+        0 as completed_quotations_count,
+        mr.high_cost,
+        mr.quotation_status,
+        mr.audit_required
+      FROM medication_requests mr
+      WHERE ${medicationConditions.whereClause};
+    `;
+    const medicationResult = await client.query(medicationQuery, medicationConditions.params);
+    console.log(`[DEBUG-BACKEND] Órdenes de medicación obtenidas: ${medicationResult.rows.length}`);
+
+    const combinedResults = [...authResult.rows, ...internmentResult.rows, ...medicationResult.rows];
     
     // Ordenar por fecha descendente (opcional pero recomendado)
     combinedResults.sort((a, b) => new Date(b.date.split('/').reverse().join('-')) - new Date(a.date.split('/').reverse().join('-')));

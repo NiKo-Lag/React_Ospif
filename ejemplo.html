@@ -1,493 +1,210 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestión de Usuarios</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts: Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6; /* bg-gray-100 */
-        }
-        /* Transiciones suaves para los elementos que aparecen */
-        .options-panel {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.5s ease-in-out, margin-top 0.5s ease-in-out;
-        }
-        .options-panel.visible {
-            max-height: 500px; /* Altura suficiente para el contenido */
-            margin-top: 1rem; /* mt-4 */
-        }
-        
-        /* Estilos para el Toast (notificación) */
-        .toast {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            transform: translateX(200%);
-            transition: transform 0.5s ease-in-out;
-            z-index: 100;
-        }
-        .toast.show {
-            transform: translateX(0);
-        }
+import React, { useState, useMemo } from 'react';
+import { X, Edit3, Save, AlertTriangle, TrendingUp, Repeat, Star, Award, Share2 } from 'lucide-react';
 
-        /* Estilos para el Modal */
-        .modal-overlay {
-            transition: opacity 0.3s ease-in-out;
-        }
-        .modal-container {
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-        }
-    </style>
-</head>
-<body class="py-12 px-4 sm:px-6 lg:px-8">
+// --- Mock Data ---
+// Data needed for this specific component to run independently.
+const beneficiariesData = {
+    1: {
+        id: 1, name: 'Juan Pérez', cuil: '20404803574', memberId: '20404803574/00', dob: '1980-03-15', sex: 'Masculino', phone: '11-5555-1234', email: 'juan.perez@email.com',
+        address: 'Av. Corrientes 1234, 5A', province: 'CABA',
+        beneficiaryType: 'Relación de Dependencia', hasDisability: true, reviewStatus: 'Al día', status: 'Activo', planType: 'Platino',
+        chronicConditions: ['Hipertensión Arterial', 'Alergia a Penicilina'],
+        monthlyMedication: ['Losartan 50mg', 'Aspirina Prevent 100mg'],
+        internalProfile: 'Paciente con hipertensión arterial crónica. Requiere control periódico de presión y medicación regular (Losartan). Alergia a la penicilina.',
+        history: [
+            { id: 'INT-7651', type: 'Internación', date: '2024-07-29', description: 'Cirugía de apéndice', provider: 'Hospital Central', status: 'Requiere Auditoría' },
+            { id: 'PRA-4532', type: 'Prácticas', date: '2024-07-28', description: 'Análisis de sangre completo.', provider: 'Centro de Diagnóstico', status: 'Aprobado' },
+            { id: 'MED-9870', type: 'Medicación', date: '2024-07-05', description: 'Losartan 50mg x 30', provider: 'Farmacia del Sol', status: 'Aprobado' },
+            { id: 'MED-9865', type: 'Medicación', date: '2024-06-05', description: 'Losartan 50mg x 30', provider: 'Farmacia del Sol', status: 'Aprobado' },
+            { id: 'PRO-2340', type: 'Prótesis', date: '2024-05-15', description: 'Tornillos para fractura', provider: 'OrtoSalud S.A.', status: 'Aprobado' },
+        ]
+    },
+    2: {
+        id: 2, name: 'Ana Gómez', cuil: '27954567891', memberId: '27954567891/00', dob: '1995-08-20', sex: 'Femenino', phone: '11-5555-5678', email: 'ana.gomez@email.com',
+        address: 'Calle Falsa 123', province: 'Buenos Aires',
+        beneficiaryType: 'Monotributo', hasDisability: false, reviewStatus: 'Pago pendiente', status: 'Activo', planType: 'Bordo',
+        chronicConditions: [], monthlyMedication: [], internalProfile: '',
+        history: []
+    },
+    // Add other beneficiaries here if needed for ranking calculation
+};
 
-    <div class="w-full max-w-4xl mx-auto space-y-8">
-        
-        <!-- Sección de KPIs -->
+
+// --- Helper Components & Functions ---
+const calculateAge = (dobString) => { 
+    const dob = new Date(dobString); 
+    const today = new Date(); 
+    let age = today.getFullYear() - dob.getFullYear(); 
+    const m = today.getMonth() - dob.getMonth(); 
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) { 
+        age--; 
+    } 
+    return age; 
+};
+
+const InfoRow = ({ label, children }) => (
+    <div className="flex justify-between items-center py-3 border-b border-gray-100 last:border-b-0">
+        <p className="text-sm text-gray-500">{label}</p>
+        <div className="text-sm font-medium text-gray-800 text-right">{children}</div>
+    </div>
+);
+
+const KpiItem = ({ icon, label, children }) => (
+    <div className="flex items-center space-x-3">
+        <div className="bg-gray-100 p-2 rounded-lg">{icon}</div>
         <div>
-            <h1 class="text-2xl font-bold text-gray-900 mb-4">Dashboard de Usuarios</h1>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                <!-- KPI Card: Usuarios Totales -->
-                <div class="bg-white rounded-xl shadow-md p-5 flex items-center space-x-4">
-                    <div class="bg-indigo-100 p-3 rounded-full">
-                        <svg class="h-6 w-6 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.5-2.962a3.75 3.75 0 015.962 0zM12 6a3.75 3.75 0 100 7.5 3.75 3.75 0 000-7.5zM12 15.75a3.75 3.75 0 01-7.5 0v-1.5A3.75 3.75 0 0112 9.75v1.5a3.75 3.75 0 01-7.5 0M12 9a3.75 3.75 0 00-7.5 0v1.5A3.75 3.75 0 0012 15v-1.5A3.75 3.75 0 0012 9z" /></svg>
-                    </div>
-                    <div>
-                        <p class="text-sm text-gray-500">Usuarios Totales</p>
-                        <p class="text-2xl font-bold text-gray-900">1,254</p>
-                    </div>
-                </div>
-                <!-- KPI Card: Usuarios Activos -->
-                <div class="bg-white rounded-xl shadow-md p-5 flex items-center space-x-4">
-                    <div class="bg-green-100 p-3 rounded-full">
-                        <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
-                    <div>
-                        <p class="text-sm text-gray-500">Usuarios Activos</p>
-                        <p class="text-2xl font-bold text-gray-900">972</p>
-                    </div>
-                </div>
-                <!-- KPI Card: Nuevas Invitaciones -->
-                <div class="bg-white rounded-xl shadow-md p-5 flex items-center space-x-4">
-                    <div class="bg-blue-100 p-3 rounded-full">
-                        <svg class="h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
-                    </div>
-                    <div>
-                        <p class="text-sm text-gray-500">Nuevas Invitaciones</p>
-                        <p class="text-2xl font-bold text-gray-900">12</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Contenedor principal: Lista y creación de usuarios -->
-        <div class="bg-white rounded-xl shadow-md">
-            <!-- Encabezado y panel de invitación -->
-            <div class="p-6 border-b border-gray-200">
-                <header class="flex justify-between items-center">
-                    <h2 class="text-lg font-medium text-gray-900">Invitar o Gestionar Usuarios</h2>
-                </header>
-                <div class="mt-4">
-                    <div class="relative">
-                         <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
-                        <input type="email" id="email-invite" class="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-md shadow-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" placeholder="Invitar a un nuevo miembro del equipo por email...">
-                    </div>
-                    <!-- Panel de opciones que aparece dinámicamente -->
-                    <div id="invite-options" class="options-panel">
-                        <div class="p-4 bg-gray-50 rounded-md">
-                            <p class="text-sm font-medium text-gray-700">Asignar un rol:</p>
-                            <div id="role-selector" class="mt-2 flex flex-wrap gap-2">
-                                <button data-role="Administrador" class="role-button flex-grow sm:flex-grow-0 px-3 py-1.5 text-sm border rounded-md bg-white text-gray-700 hover:bg-gray-200">Administrador</button>
-                                <button data-role="Auditor" class="role-button flex-grow sm:flex-grow-0 px-3 py-1.5 text-sm border rounded-md bg-white text-gray-700 hover:bg-gray-200">Auditor</button>
-                                <button data-role="Prestador" class="role-button flex-grow sm:flex-grow-0 px-3 py-1.5 text-sm border rounded-md bg-white text-gray-700 hover:bg-gray-200">Prestador</button>
-                                <button data-role="Usuario" class="role-button flex-grow sm:flex-grow-0 px-3 py-1.5 text-sm border rounded-md bg-white text-gray-700 hover:bg-gray-200">Usuario</button>
-                            </div>
-                            <div class="mt-4 flex justify-end gap-3">
-                                <button id="cancel-invite" type="button" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">Cancelar</button>
-                                <button id="send-invite" type="button" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed" disabled>Enviar Invitación</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Lista de usuarios existentes -->
-            <div class="p-6">
-                <ul id="user-list" class="space-y-4">
-                    <!-- Usuario 1 (Mockup) -->
-                    <li class="user-item flex flex-wrap items-center justify-between gap-y-3" data-id="1" data-name="Horacio Nicolas" data-email="horacio.nicolas@example.com" data-role="Prestador">
-                        <div class="flex items-center space-x-4">
-                            <img class="h-10 w-10 rounded-full" src="https://placehold.co/100x100/E2E8F0/4A5568?text=HN" alt="Avatar de Horacio Nicolas" onerror="this.onerror=null;this.src='https://placehold.co/100x100/E2E8F0/4A5568?text=??';">
-                            <div>
-                                <p class="text-sm font-medium text-gray-900">Horacio Nicolas</p>
-                                <p class="text-sm text-gray-500">horacio.nicolas@example.com</p>
-                            </div>
-                            <div class="flex items-center gap-x-2">
-                                <span class="role-badge inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800">Prestador</span>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Activo</span>
-                            </div>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <button class="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 open-history-modal" aria-label="Ver historial">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" /></svg>
-                            </button>
-                            <button class="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 open-edit-modal" aria-label="Editar usuario">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                            </button>
-                            <button class="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-red-50" aria-label="Eliminar usuario">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.134-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.067-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                            </button>
-                        </div>
-                    </li>
-                    <!-- Usuario 2 (Mockup) -->
-                    <li class="user-item flex flex-wrap items-center justify-between gap-y-3" data-id="2" data-name="Naiara Camila" data-email="naiara.camila@example.com" data-role="Administrador">
-                        <div class="flex items-center space-x-4">
-                            <img class="h-10 w-10 rounded-full" src="https://placehold.co/100x100/E2E8F0/4A5568?text=NC" alt="Avatar de Naiara Camila" onerror="this.onerror=null;this.src='https://placehold.co/100x100/E2E8F0/4A5568?text=??';">
-                            <div>
-                                <p class="text-sm font-medium text-gray-900">Naiara Camila</p>
-                                <p class="text-sm text-gray-500">naiara.camila@example.com</p>
-                            </div>
-                            <div class="flex items-center gap-x-2">
-                                <span class="role-badge inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">Administrador</span>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Activo</span>
-                            </div>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                           <button class="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 open-history-modal" aria-label="Ver historial">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" /></svg>
-                            </button>
-                           <button class="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 open-edit-modal" aria-label="Editar usuario">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                            </button>
-                            <button class="p-2 text-gray-400 hover:text-red-600 rounded-full hover:bg-red-50" aria-label="Eliminar usuario">
-                                <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.134-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.067-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                            </button>
-                        </div>
-                    </li>
-                </ul>
-            </div>
+            <p className="text-sm text-gray-500">{label}</p>
+            <div className="font-bold text-gray-800">{children}</div>
         </div>
     </div>
+);
 
-    <!-- Modal para Historial de Sesiones -->
-    <div id="history-modal" class="fixed inset-0 z-50 hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div id="history-modal-overlay" class="fixed inset-0 bg-gray-500 bg-opacity-75 modal-overlay" aria-hidden="true"></div>
-            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div id="history-modal-container" class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-container">
-                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                    <div class="sm:flex sm:items-start">
-                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100 sm:mx-0 sm:h-10 sm:w-10">
-                            <svg class="h-6 w-6 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" /></svg>
-                        </div>
-                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="history-modal-title">Registro de Sesiones</h3>
-                            <div class="mt-2">
-                                <p class="text-sm text-gray-500" id="history-modal-username"></p>
-                            </div>
-                        </div>
-                    </div>
+const AlertBanner = ({ text }) => (
+    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 rounded-r-lg mb-6 flex items-center">
+        <AlertTriangle className="mr-3" />
+        <p className="font-bold">{text}</p>
+    </div>
+);
+
+
+// --- Main Beneficiary Profile Component ---
+const BeneficiaryProfile = ({ beneficiary, allBeneficiaries }) => {
+    const [activeTab, setActiveTab] = useState('Internación');
+    const [isEditingProfile, setIsEditingProfile] = useState(false);
+    const [isEditingClinical, setIsEditingClinical] = useState(false);
+    
+    const [profileText, setProfileText] = useState(beneficiary.internalProfile);
+    const [chronicText, setChronicText] = useState((beneficiary.chronicConditions || []).join(', '));
+    const [medicationText, setMedicationText] = useState((beneficiary.monthlyMedication || []).join(', '));
+
+    const kpis = useMemo(() => {
+        if (!beneficiary || !beneficiary.history || beneficiary.history.length === 0) {
+            return { total: 0, frequency: "N/A", topProvider: "N/A", rank: "N/A", totalBeneficiaries: Object.keys(allBeneficiaries).length };
+        }
+        
+        const total = beneficiary.history.length;
+        
+        const dates = beneficiary.history.map(h => new Date(h.date));
+        const minDate = new Date(Math.min.apply(null, dates));
+        const maxDate = new Date(Math.max.apply(null, dates));
+        const months = (maxDate.getFullYear() - minDate.getFullYear()) * 12 + (maxDate.getMonth() - minDate.getMonth()) + 1;
+        const frequency = (total / (months || 1)).toFixed(1);
+
+        const providerCounts = beneficiary.history.reduce((acc, h) => {
+            if(h.provider) acc[h.provider] = (acc[h.provider] || 0) + 1;
+            return acc;
+        }, {});
+        const topProvider = Object.keys(providerCounts).reduce((a, b) => providerCounts[a] > providerCounts[b] ? a : b, "N/A");
+
+        const consumptionList = Object.values(allBeneficiaries).map(b => ({ id: b.id, count: (b.history || []).length })).sort((a, b) => b.count - a.count);
+        const rank = consumptionList.findIndex(b => b.id === beneficiary.id) + 1;
+
+        return { total, frequency, topProvider, rank, totalBeneficiaries: consumptionList.length };
+    }, [beneficiary, allBeneficiaries]);
+
+    const historyByType = useMemo(() => {
+        return (beneficiary.history || []).reduce((acc, item) => { 
+            if (!acc[item.type]) { acc[item.type] = []; } 
+            acc[item.type].push(item); 
+            return acc; 
+        }, {});
+    }, [beneficiary.history]);
+
+    const tabs = ['Internación', 'Prácticas', 'Medicación', 'Traslado', 'Prótesis'];
+
+    const criticalStatus = beneficiary.status !== 'Activo' ? `Beneficiario en estado ${beneficiary.status}` : beneficiary.reviewStatus !== 'Al día' ? `Situación de revista: ${beneficiary.reviewStatus}` : null;
+
+    if (!beneficiary) return <p>Beneficiary not found.</p>;
+
+    return (
+        <div className="bg-gray-50 rounded-2xl w-full max-w-6xl mx-auto my-8 flex flex-col shadow-lg">
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+                <div className="flex items-center space-x-4">
+                    <h2 className="text-2xl font-bold text-gray-900">Perfil del Beneficiario: {beneficiary.name}</h2>
+                    <span className={`px-3 py-1 text-xs font-semibold rounded-full ${beneficiary.status === 'Activo' ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{beneficiary.status}</span>
                 </div>
-                <div class="px-4 sm:px-6 -mt-4">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha y Hora</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dirección IP</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dispositivo</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                    </table>
-                </div>
-                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="close-history-modal" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
-                        Cerrar
+                <div className="flex items-center space-x-4">
+                    <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                        <Share2 size={22} />
+                    </button>
+                    <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                        <X size={28} />
                     </button>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Modal para Editar Usuario -->
-    <div id="edit-modal" class="fixed inset-0 z-50 hidden" aria-labelledby="edit-modal-title" role="dialog" aria-modal="true">
-        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div id="edit-modal-overlay" class="fixed inset-0 bg-gray-500 bg-opacity-75 modal-overlay" aria-hidden="true"></div>
-            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
-            <div id="edit-modal-container" class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform sm:my-8 sm:align-middle sm:max-w-lg sm:w-full modal-container">
-                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                    <div class="sm:flex sm:items-start">
-                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-indigo-100 sm:mx-0 sm:h-10 sm:w-10">
-                            <svg class="h-6 w-6 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487zm0 0L19.5 7.125" /></svg>
+            <div className="flex-grow p-6 overflow-y-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left Column */}
+                <div className="lg:col-span-1 space-y-6">
+                    {criticalStatus && <AlertBanner text={criticalStatus} />}
+                    <div className="bg-white p-6 rounded-xl shadow-sm">
+                        <h3 className="font-bold text-lg mb-4">Datos Personales</h3>
+                        <div className="space-y-1">
+                            <InfoRow label="N° Afiliado"><span>{beneficiary.memberId}</span></InfoRow>
+                            <InfoRow label="CUIL"><span>{beneficiary.cuil}</span></InfoRow>
+                            <InfoRow label="Sexo"><span>{beneficiary.sex}</span></InfoRow>
+                            <InfoRow label="Edad"><span>{calculateAge(beneficiary.dob)} años</span></InfoRow>
+                            <InfoRow label="Dirección"><span>{beneficiary.address}</span></InfoRow>
+                            <InfoRow label="Provincia"><span>{beneficiary.province}</span></InfoRow>
+                            <InfoRow label="Tipo Beneficiario"><span>{beneficiary.beneficiaryType}</span></InfoRow>
+                            <InfoRow label="Plan"><span className={`px-2 py-0.5 text-xs font-semibold rounded-full ${beneficiary.planType === 'Platino' ? 'bg-gray-700 text-white' : 'bg-amber-600 text-white'}`}>{beneficiary.planType}</span></InfoRow>
+                            <InfoRow label="Discapacidad"><span>{beneficiary.hasDisability ? 'Sí' : 'No'}</span></InfoRow>
+                            <InfoRow label="Situación Revista"><span>{beneficiary.reviewStatus}</span></InfoRow>
                         </div>
-                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900" id="edit-modal-title">Editar Usuario</h3>
-                            <div class="mt-2">
-                                <p class="text-sm text-gray-500" id="edit-modal-username"></p>
-                            </div>
+                    </div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm">
+                        <h3 className="font-bold text-lg mb-4">KPIs de Consumo</h3>
+                        <div className="space-y-4">
+                            <KpiItem icon={<TrendingUp size={20} className="text-green-600"/>}><p>{kpis.total} Consumos Totales</p></KpiItem>
+                            <KpiItem icon={<Repeat size={20} className="text-blue-600"/>}><p>{`${kpis.frequency} / mes`}</p></KpiItem>
+                            <KpiItem icon={<Star size={20} className="text-yellow-600"/>}><p>{kpis.topProvider}</p></KpiItem>
+                            <KpiItem icon={<Award size={20} className="text-indigo-600"/>}>
+                                <div className="w-full">
+                                    <div className="flex justify-between text-xs mb-1">
+                                        <span>Ranking</span>
+                                        <span>{`${kpis.rank} / ${kpis.totalBeneficiaries}`}</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                        <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${(1 - (kpis.rank - 1) / kpis.totalBeneficiaries) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                            </KpiItem>
                         </div>
                     </div>
                 </div>
-                <form id="edit-user-form" class="px-4 sm:px-6 py-4 space-y-6">
-                    <div>
-                        <label for="edit-email" class="block text-sm font-medium text-gray-700">Correo Electrónico</label>
-                        <input type="email" id="edit-email" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+
+                {/* Right Column */}
+                <div className="lg:col-span-2 space-y-6">
+                     <div className="bg-white p-6 rounded-xl shadow-sm">
+                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Resumen Clínico</h3><button onClick={() => setIsEditingClinical(!isEditingClinical)} className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center space-x-1">{isEditingClinical ? <><Save size={16}/><span>Guardar</span></> : <><Edit3 size={16}/><span>Editar</span></>}</button></div>
+                        {isEditingClinical ? (<div className="space-y-4"><div><label className="block text-sm font-medium text-gray-700 mb-1">Enfermedades Crónicas (separadas por coma)</label><input type="text" value={chronicText} onChange={(e) => setChronicText(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500" /></div><div><label className="block text-sm font-medium text-gray-700 mb-1">Medicación Mensual (separada por coma)</label><input type="text" value={medicationText} onChange={(e) => setMedicationText(e.target.value)} className="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500" /></div></div>) : (<div className="space-y-4"><div><h4 className="text-sm font-semibold text-gray-600 mb-2">Enfermedades Crónicas</h4><div className="flex flex-wrap gap-2">{chronicText.split(',').map(c => c.trim()).filter(c => c).length > 0 ? chronicText.split(',').map(c => c.trim()).filter(c => c).map(c => <span key={c} className="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-1 rounded-full flex items-center"><AlertTriangle size={12} className="mr-1.5"/>{c}</span>) : <p className="text-xs text-gray-400">No registradas.</p>}</div></div><div><h4 className="text-sm font-semibold text-gray-600 mb-2">Medicación Mensual</h4><div className="flex flex-wrap gap-2">{medicationText.split(',').map(m => m.trim()).filter(m => m).length > 0 ? medicationText.split(',').map(m => m.trim()).filter(m => m).map(m => <span key={m} className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-1 rounded-full">{m}</span>) : <p className="text-xs text-gray-400">No registrada.</p>}</div></div></div>)}
                     </div>
-                    <div>
-                        <label for="edit-role" class="block text-sm font-medium text-gray-700">Rol de Usuario</label>
-                        <select id="edit-role" class="mt-1 block w-full py-2 px-3 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                            <option>Administrador</option>
-                            <option>Auditor</option>
-                            <option>Prestador</option>
-                            <option>Usuario</option>
-                        </select>
+                    <div className="bg-white p-6 rounded-xl shadow-sm">
+                        <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Comentarios Internos</h3><button onClick={() => setIsEditingProfile(!isEditingProfile)} className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center space-x-1">{isEditingProfile ? <><Save size={16}/><span>Guardar</span></> : <><Edit3 size={16}/><span>Editar</span></>}</button></div>
+                        {isEditingProfile ? (<textarea value={profileText} onChange={(e) => setProfileText(e.target.value)} className="w-full h-24 p-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-indigo-500"/>) : (<p className="text-sm text-gray-600 whitespace-pre-wrap">{profileText || 'No hay notas en el perfil.'}</p>)}
                     </div>
-                    <div id="module-access-section" class="hidden">
-                        <label class="block text-sm font-medium text-gray-700">Acceso a Módulos del Portal</label>
-                        <div class="mt-2 space-y-2">
-                            <div class="relative flex items-start"><div class="flex items-center h-5"><input id="mod-verificacion" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"></div><div class="ml-3 text-sm"><label for="mod-verificacion" class="font-medium text-gray-700">Verificación de beneficiarios</label></div></div>
-                            <div class="relative flex items-start"><div class="flex items-center h-5"><input id="mod-internaciones" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"></div><div class="ml-3 text-sm"><label for="mod-internaciones" class="font-medium text-gray-700">Panel de internaciones</label></div></div>
-                            <div class="relative flex items-start"><div class="flex items-center h-5"><input id="mod-pendientes" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"></div><div class="ml-3 text-sm"><label for="mod-pendientes" class="font-medium text-gray-700">Autorizaciones pendientes</label></div></div>
-                            <div class="relative flex items-start"><div class="flex items-center h-5"><input id="mod-historial" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"></div><div class="ml-3 text-sm"><label for="mod-historial" class="font-medium text-gray-700">Historial de autorizaciones</label></div></div>
-                            <div class="relative flex items-start"><div class="flex items-center h-5"><input id="mod-convenio" type="checkbox" class="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"></div><div class="ml-3 text-sm"><label for="mod-convenio" class="font-medium text-gray-700">Convenio</label></div></div>
+                    <div className="bg-white p-6 rounded-xl shadow-sm">
+                        <h3 className="font-bold text-lg mb-4">Historial de Prácticas</h3>
+                        <div className="border-b border-gray-200"><nav className="-mb-px flex space-x-6 overflow-x-auto">{tabs.map(tab => (<button key={tab} onClick={() => setActiveTab(tab)} className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm ${activeTab === tab ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}`}>{tab}</button>))}</nav></div>
+                        <div className="mt-4 space-y-3 h-[25vh] overflow-y-auto pr-2">
+                           {(historyByType[activeTab] || []).length > 0 ? (historyByType[activeTab].map(item => (<div key={item.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200"><p className="font-semibold text-sm">{new Date(item.date).toLocaleDateString('es-AR', { year: 'numeric', month: 'long', day: 'numeric' })} - <span className={item.status === 'Aprobado' ? 'text-green-600' : item.status === 'Rechazado' ? 'text-red-600' : 'text-yellow-600'}>{item.status}</span></p><p className="text-sm text-gray-600">{item.description}</p></div>))) : (<p className="text-sm text-gray-400 text-center pt-10">No hay registros para esta categoría.</p>)}
                         </div>
                     </div>
-                </form>
-                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
-                    <button type="button" id="save-changes-button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">Guardar Cambios</button>
-                    <button type="button" id="cancel-edit-button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">Cancelar</button>
                 </div>
             </div>
         </div>
+    );
+};
+
+// --- App Component to render the profile ---
+export default function App() {
+  const [beneficiary, setBeneficiary] = useState(beneficiariesData[1]);
+  
+  return (
+    <div className="bg-gray-200 p-4">
+        <BeneficiaryProfile 
+            beneficiary={beneficiary} 
+            allBeneficiaries={beneficiariesData} 
+        />
     </div>
-
-    <!-- Toast Notification -->
-    <div id="toast" class="toast p-4 rounded-md shadow-lg bg-gray-800 text-white flex items-center gap-3">
-        <svg class="h-6 w-6 text-green-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-        <p id="toast-message" class="text-sm font-medium"></p>
-    </div>
-
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            let activeUserItem = null; // Variable to store the user item being edited
-
-            // --- Lógica de Invitación ---
-            const emailInput = document.getElementById('email-invite');
-            const optionsPanel = document.getElementById('invite-options');
-            const roleButtons = document.querySelectorAll('.role-button');
-            const sendButton = document.getElementById('send-invite');
-            const cancelButton = document.getElementById('cancel-invite');
-            const toast = document.getElementById('toast');
-            const toastMessage = document.getElementById('toast-message');
-
-            let selectedRole = null;
-            let toastTimeout;
-
-            function showOptionsPanel() {
-                if (emailInput.value.length > 0) {
-                    optionsPanel.classList.add('visible');
-                } else {
-                    hideOptionsPanel();
-                }
-            }
-
-            function hideOptionsPanel() {
-                optionsPanel.classList.remove('visible');
-                emailInput.value = '';
-                selectedRole = null;
-                updateSendButtonState();
-                roleButtons.forEach(btn => btn.classList.remove('bg-indigo-600', 'text-white'));
-            }
-
-            function updateSendButtonState() {
-                sendButton.disabled = !(emailInput.value && selectedRole);
-            }
-
-            function showToast(message) {
-                toastMessage.textContent = message;
-                toast.classList.add('show');
-                clearTimeout(toastTimeout);
-                toastTimeout = setTimeout(() => {
-                    toast.classList.remove('show');
-                }, 4000);
-            }
-
-            emailInput.addEventListener('input', () => {
-                showOptionsPanel();
-                updateSendButtonState();
-            });
-
-            roleButtons.forEach(button => {
-                button.addEventListener('click', () => {
-                    roleButtons.forEach(btn => {
-                        btn.classList.remove('bg-indigo-600', 'text-white');
-                        btn.classList.add('bg-white', 'text-gray-700');
-                    });
-                    button.classList.add('bg-indigo-600', 'text-white');
-                    button.classList.remove('bg-white', 'text-gray-700');
-                    selectedRole = button.dataset.role;
-                    updateSendButtonState();
-                });
-            });
-
-            cancelButton.addEventListener('click', hideOptionsPanel);
-
-            sendButton.addEventListener('click', () => {
-                const email = emailInput.value;
-                if (!email || !selectedRole) return;
-                console.log(`Enviando invitación a: ${email} con el rol de: ${selectedRole}`);
-                showToast(`Invitación enviada a ${email}`);
-                hideOptionsPanel();
-            });
-
-            // --- Lógica del Modal de Historial ---
-            const historyModal = document.getElementById('history-modal');
-            const historyModalOverlay = document.getElementById('history-modal-overlay');
-            const historyModalUsername = document.getElementById('history-modal-username');
-            const historyTableBody = document.getElementById('history-table-body');
-            const closeHistoryModalButton = document.getElementById('close-history-modal');
-            const openHistoryModalButtons = document.querySelectorAll('.open-history-modal');
-
-            const mockHistory = {
-                "Horacio Nicolas": [
-                    { date: "18/07/2025 10:30", ip: "190.210.55.12", device: "Chrome en Windows" },
-                    { date: "17/07/2025 15:12", ip: "200.50.110.1", device: "Safari en iPhone" },
-                ],
-                "Naiara Camila": [
-                    { date: "18/07/2025 11:05", ip: "181.44.20.100", device: "App Android" },
-                ]
-            };
-
-            function openHistoryModal(username) {
-                historyModalUsername.textContent = `Para ${username}`;
-                historyTableBody.innerHTML = ''; 
-                const userHistory = mockHistory[username] || [];
-                if (userHistory.length > 0) {
-                    userHistory.forEach(entry => {
-                        const row = `
-                            <tr class="text-sm">
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-500">${entry.date}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-500">${entry.ip}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-gray-500">${entry.device}</td>
-                            </tr>`;
-                        historyTableBody.insertAdjacentHTML('beforeend', row);
-                    });
-                } else {
-                     historyTableBody.innerHTML = `<tr><td colspan="3" class="text-center py-4 text-sm text-gray-500">No hay registros de sesión.</td></tr>`;
-                }
-                historyModal.classList.remove('hidden');
-            }
-
-            function closeHistoryModal() {
-                historyModal.classList.add('hidden');
-            }
-
-            openHistoryModalButtons.forEach(button => {
-                button.addEventListener('click', (e) => openHistoryModal(e.currentTarget.closest('.user-item').dataset.name));
-            });
-
-            closeHistoryModalButton.addEventListener('click', closeHistoryModal);
-            historyModalOverlay.addEventListener('click', closeHistoryModal);
-
-            // --- Lógica del Modal de Edición ---
-            const editModal = document.getElementById('edit-modal');
-            const editModalOverlay = document.getElementById('edit-modal-overlay');
-            const editModalUsername = document.getElementById('edit-modal-username');
-            const editEmailInput = document.getElementById('edit-email');
-            const editRoleSelect = document.getElementById('edit-role');
-            const moduleAccessSection = document.getElementById('module-access-section');
-            const cancelEditButton = document.getElementById('cancel-edit-button');
-            const saveChangesButton = document.getElementById('save-changes-button');
-            const openEditModalButtons = document.querySelectorAll('.open-edit-modal');
-
-            const roleColors = {
-                "Administrador": "bg-purple-100 text-purple-800",
-                "Auditor": "bg-yellow-100 text-yellow-800",
-                "Prestador": "bg-teal-100 text-teal-800",
-                "Usuario": "bg-gray-100 text-gray-800"
-            };
-
-            function openEditModal(userItem) {
-                activeUserItem = userItem; // Store the current user item
-                const name = userItem.dataset.name;
-                const email = userItem.dataset.email;
-                const role = userItem.dataset.role;
-
-                editModalUsername.textContent = name;
-                editEmailInput.value = email;
-                editRoleSelect.value = role;
-
-                if (role === 'Prestador') {
-                    moduleAccessSection.classList.remove('hidden');
-                } else {
-                    moduleAccessSection.classList.add('hidden');
-                }
-                editModal.classList.remove('hidden');
-            }
-
-            function closeEditModal() {
-                editModal.classList.add('hidden');
-                activeUserItem = null; // Clear the stored user item
-            }
-
-            editRoleSelect.addEventListener('change', (e) => {
-                if (e.target.value === 'Prestador') {
-                    moduleAccessSection.classList.remove('hidden');
-                } else {
-                    moduleAccessSection.classList.add('hidden');
-                }
-            });
-
-            openEditModalButtons.forEach(button => {
-                button.addEventListener('click', (e) => openEditModal(e.currentTarget.closest('.user-item')));
-            });
-
-            saveChangesButton.addEventListener('click', () => {
-                if (!activeUserItem) return;
-
-                const newEmail = editEmailInput.value;
-                const newRole = editRoleSelect.value;
-                
-                // Update data attributes
-                activeUserItem.dataset.email = newEmail;
-                activeUserItem.dataset.role = newRole;
-
-                // Update UI in the list
-                activeUserItem.querySelector('.text-gray-500').textContent = newEmail;
-                const roleBadge = activeUserItem.querySelector('.role-badge');
-                roleBadge.textContent = newRole;
-                
-                // Update role badge color
-                roleBadge.className = `role-badge inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${roleColors[newRole] || roleColors['Usuario']}`;
-
-
-                console.log(`Guardando cambios para ${activeUserItem.dataset.name}. Nuevo email: ${newEmail}, Nuevo rol: ${newRole}`);
-                
-                const permissions = {};
-                if (!moduleAccessSection.classList.contains('hidden')) {
-                    moduleAccessSection.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                        permissions[checkbox.id] = checkbox.checked;
-                    });
-                }
-                console.log("Permisos guardados:", permissions);
-                
-                showToast(`Usuario ${activeUserItem.dataset.name} actualizado.`);
-                closeEditModal();
-            });
-
-            cancelEditButton.addEventListener('click', closeEditModal);
-            editModalOverlay.addEventListener('click', closeEditModal);
-        });
-    </script>
-
-</body>
-</html>
+  );
+}

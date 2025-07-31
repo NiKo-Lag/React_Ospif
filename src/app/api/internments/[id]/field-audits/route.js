@@ -1,7 +1,7 @@
 // src/app/api/internments/[id]/field-audits/route.js
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../../../../auth/[...nextauth]/route';
+import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { pool } from '@/lib/db';
 import { sendMail } from '@/lib/email'; // Importar nuestro nuevo helper
 import fs from 'fs/promises';
@@ -99,10 +99,10 @@ export async function POST(request, { params }) {
 
       // 1. Crear notificación en la plataforma
       const insertNotificationQuery = `
-        INSERT INTO notifications (user_id, message, link, read)
+        INSERT INTO notifications (provider_id, internment_id, message, is_read)
         VALUES ($1, $2, $3, FALSE);
       `;
-      await client.query(insertNotificationQuery, [assignedAuditorId, notificationMessage, notificationLink]);
+      await client.query(insertNotificationQuery, [assignedAuditorId, internmentId, notificationMessage]);
 
       // 2. Enviar correo electrónico
       if (auditor_email) {
